@@ -13,9 +13,30 @@ assert gettable?(manifest, "owner/lib")
 assert !gettable?(manifest, "fork/lib")
 assert !gettable?("module iyipacks\n", "x/iyipacks")
 
-assert latest_version(["v1.2.0", "v1.10.0", "v1.9.9", "latest", "v2.0.0-rc.1", "1.11.0"]) == "v2.0.0-rc.1"
-assert latest_version(["v1.0.0", "v1.0.0-beta"]) == "v1.0.0"
-assert latest_version(["main"]).nil?
+# A major version past 1 lives at the repository's path plus /vN (issue #2).
+assert major_version("github.com/dethrandir/ccharts/v3") == 3
+assert major_version("github.com/a/b/v10") == 10
+assert major_version("github.com/a/b").nil?
+assert major_version("github.com/a/b/v1").nil?
+assert major_version("github.com/a/b/v0").nil?
+assert major_version("github.com/a/b/v02").nil?
+assert major_version("github.com/a/b/v3x").nil?
+assert major_version("github.com/a/v2-tools").nil?
+assert gettable?("module github.com/dethrandir/ccharts/v3\n", "dethrandir/ccharts")
+assert gettable?("module github.com/Owner/Lib/v2\n", "owner/lib")
+assert !gettable?("module github.com/owner/lib/v1\n", "owner/lib")
+assert !gettable?("module github.com/owner/lib/sub\n", "owner/lib")
+assert !gettable?("module github.com/owner/lib/v2\n", "owner/other")
+
+# A plain path's versions stop at v1; a /vN path's are vN's.
+tags = ["v1.2.0", "v1.10.0", "v1.9.9", "latest", "v2.0.0-rc.1", "1.11.0", "v3.0.0", "v3.1.0", "bindings/go/v3.2.0"]
+assert latest_version(tags, nil) == "v1.10.0"
+assert latest_version(tags, 2) == "v2.0.0-rc.1"
+assert latest_version(tags, 3) == "v3.1.0"
+assert latest_version(tags, 4).nil?
+assert latest_version(["v0.2.2", "v0.10.0"], nil) == "v0.10.0"
+assert latest_version(["v1.0.0", "v1.0.0-beta"], nil) == "v1.0.0"
+assert latest_version(["main"], nil).nil?
 
 assert category_for(["iyi", "JSON"]) == "data"
 assert category_for(["cli", "http"]) == "web"

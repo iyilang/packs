@@ -24,7 +24,7 @@ import db/db/errors::{DBError}
 import db/db/value::{DBValue}
 import miyrate/miyrate/errors::{MiyrateError}
 import src/catalog::{Package}
-import src/modules::{gettable?, requirements, latest_version, category_for, dependents, module_slug}
+import src/modules::{gettable?, module_path, major_version, requirements, latest_version, category_for, dependents, module_slug}
 import src/storage::{database_url, open_database}
 
 API = "https://api.github.com/"
@@ -106,9 +106,12 @@ def fetch(name : String) : Hash(String, String)?
   FAILED << full if status == 0 || status >= 500
   return nil unless status == 200 && gettable?(manifest, full)
 
+  # The path as iyi.mod declares it, with any /vN suffix, spelled as the
+  # repository is.
+  major = major_version(module_path(manifest) || "")
   record = {} of String => String
   record["name"] = repo["name"].as_s
-  record["module"] = "github.com/#{full}"
+  record["module"] = "github.com/#{full}" + (major ? "/v#{major}" : "")
   record["repo"] = full
   topics = (repo["topics"]? ? repo["topics"].as_a.map(&.as_s) : [] of String)
   record["topics"] = topics.join(" ")
@@ -116,7 +119,7 @@ def fetch(name : String) : Hash(String, String)?
   record["description"] = text(repo["description"]?)
   record["source"] = repo["html_url"].as_s
   record["homepage"] = text(repo["homepage"]?)
-  record["usage"] = "iyi get github.com/#{full}"
+  record["usage"] = "iyi get #{record["module"]}"
   license = repo["license"]?
   spdx = license && license.as_h? ? text(license["spdx_id"]?) : ""
   record["license"] = spdx == "NOASSERTION" ? "" : spdx
@@ -130,7 +133,7 @@ def fetch(name : String) : Hash(String, String)?
 
   tags = api("repos/#{full}/tags?per_page=100")
   tag_list = tags ? tags.as_a : [] of Any
-  version = latest_version(tag_list.map { |tag| tag["name"].as_s })
+  version = latest_version(tag_list.map { |tag| tag["name"].as_s }, major)
   record["version"] = version || ""
   record["released"] = ""
   if version

@@ -6,8 +6,9 @@ import std/time::{Time}
 
 # What update.iyi needs to know about iyi modules, apart from fetching them,
 # and what the site says about their age. An iyi module is a GitHub
-# repository whose root holds an iyi.mod naming it github.com/OWNER/REPO, as
-# `iyi get` requires; its versions are its vMAJOR.MINOR.PATCH tags.
+# repository whose root holds an iyi.mod naming it github.com/OWNER/REPO, or
+# github.com/OWNER/REPO/vN for major version N, as `iyi get` requires; its
+# versions are its vMAJOR.MINOR.PATCH tags of that major version.
 
 # GitHub topics that put a module in a category, in the order the categories
 # are tried. A module without any of them is in "other".
@@ -39,20 +40,38 @@ pub def requirements(text : String) : Array(String)
   paths
 end
 
-# Whether *text* names the module at github.com/*repo*, as `iyi get` requires.
-pub def gettable?(text : String, repo : String) : Bool
-  path = module_path(text)
-  !path.nil? && path.downcase == "github.com/#{repo}".downcase
+# The major version a module path's `/vN` suffix names, or nil for a path
+# without one. Only N of 2 and up is a suffix: major versions 0 and 1 live
+# at the plain path.
+pub def major_version(path : String) : Int32?
+  slash = path.rindex('/')
+  return nil unless slash
+  last = path[slash + 1, path.size]
+  return nil unless last.size > 1 && last[0] == 'v' && last[1] != '0' && last[1, last.size].chars.all?(&.ascii_number?)
+  major = last[1, last.size].to_i?
+  major && major >= 2 ? major : nil
 end
 
-# The highest vMAJOR.MINOR.PATCH among *tags*, or nil.
-pub def latest_version(tags : Array(String)) : String?
+# Whether *text* names the module at github.com/*repo*, as `iyi get` requires:
+# the repository's path, or that path with a `/vN` suffix for major version N.
+pub def gettable?(text : String, repo : String) : Bool
+  path = module_path(text)
+  return false unless path
+  path = path[0, path.rindex('/') || path.size] if major_version(path)
+  path.downcase == "github.com/#{repo}".downcase
+end
+
+# The highest vMAJOR.MINOR.PATCH among *tags* that belongs to a module of
+# *major* version (nil: a path without a suffix, versions 0 and 1), or nil.
+# A plain path's versions never cross into v2, as `iyi get` reads them.
+pub def latest_version(tags : Array(String), major : Int32?) : String?
   best = nil
   best_version = SemanticVersion.new(0, 0, 0)
   tags.each do |tag|
     next unless tag.starts_with?("v")
     version = SemanticVersion.parse?(tag[1, tag.size])
     next unless version
+    next unless major ? version.major == major : version.major <= 1
     if best.nil? || version > best_version
       best = tag
       best_version = version
