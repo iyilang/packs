@@ -6,7 +6,6 @@
 <p>The iyi standard library, and every iyi module on GitHub: a repository whose iyi.mod at its root names it, so that iyi get can fetch it.</p>
 <h2>Crystal shards</h2>
 <p>Crystal shards are not listed here, but iyi supports them: build your program with iyi build --crystal, and require a shard as in Crystal.</p>
-<p><a class="text-link" href="https://shardbox.org/" target="_blank" rel="noopener noreferrer">Find Crystal shards on Shardbox<span>↗</span></a></p>
 <h2>Bring a shard over</h2>
 <p>iyi has a tool that rewrites a shard as iyi modules: <code>iyi migrate src --out iyi --annotate --check</code> writes the modules, compiles each one and names what is left for a person to finish, such as the types it could not work out.</p>
 <p>We recommend doing the rest with an LLM as well: give it the shard, the migrated modules and what --check reports, and review what it writes. Then publish the module on GitHub, and it is listed here.</p>

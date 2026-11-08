@@ -23,7 +23,7 @@ import src/seo::*
 # the program; a template sees the locals of the method that renders it and
 # escapes every value it prints unless it is passed through `raw`.
 
-pub REPO_URL = "https://github.com/domify/iyipacks-website"
+pub REPO_URL = "https://github.com/iyilang/packs"
 # Where a reader reports a package that is malicious or unsafe: GitHub, and
 # this directory's own issues.
 GITHUB_ABUSE = "https://docs.github.com/en/communities/maintaining-your-safety-on-github/reporting-abuse-or-spam"
