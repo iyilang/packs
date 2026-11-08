@@ -14,6 +14,7 @@
 #   GITHUB_TOKEN=… iyi run update.iyi
 module update
 
+import std/base64::{Base64}
 import std/env::{ENV}
 import std/json::{JSON, Any}
 import std/process::{Process, ProcessResult}
@@ -40,8 +41,8 @@ LIMITED = [] of String
 
 # The columns update writes, in the order of the values `row` gives.
 INSERT = "INSERT INTO packages (slug, name, module, repo, category, description, source, homepage, usage, license, distribution, " +
-         "stars, forks, issues, watchers, contributors, created, pushed, version, released, requires, dependents, topics) " +
-         "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+         "stars, forks, issues, watchers, contributors, created, pushed, version, released, requires, dependents, topics, readme, readme_base) " +
+         "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
 
 def stop(message : String) : NoReturn
   STDERR.puts "update: " + message
@@ -185,7 +186,22 @@ def fetch(name : String) : Hash(String, String)?
   contributors = api("repos/#{full}/contributors?per_page=100&anon=1")
   count = contributors ? contributors.as_a.size : 0
   record["contributors"] = count >= 100 ? "100+" : count.to_s
+  readme = api("repos/#{full}/readme")
+  record["readme"] = readme ? readme_text(readme) : ""
+  record["readme_base"] = readme ? readme_base(full, repo["default_branch"].as_s, text(readme["path"]?)) : ""
   record
+end
+
+# The Markdown of a README as the API sends it, base64 encoded.
+def readme_text(readme : Any) : String
+  return "" unless text(readme["encoding"]?) == "base64"
+  Base64.decode(text(readme["content"]?).delete('\n'))
+end
+
+# The README's directory on GitHub, which its relative links are read against.
+def readme_base(full : String, branch : String, path : String) : String
+  slash = path.rindex('/')
+  "https://github.com/#{full}/blob/#{branch}/" + (slash ? path[0, slash + 1] : "")
 end
 
 # A module of the last import as a record, to keep when GitHub does not
@@ -211,6 +227,8 @@ def row(record : Hash(String, String)) : Array(DBValue)
   ["version", "released", "requires"].each { |key| values << record[key] }
   values << record["dependents"].to_i64
   values << record["topics"]
+  values << (record["readme"]? || "")
+  values << (record["readme_base"]? || "")
   values
 end
 
@@ -244,6 +262,12 @@ db.query_all("SELECT slug, name, module, repo, category, description, source, ho
              "FROM packages WHERE distribution = 'GitHub'", as: Package).or_panic.each do |pack|
   record = record_of(pack)
   previous[record["repo"].downcase] = record
+end
+db.query_all("SELECT repo, readme, readme_base FROM packages WHERE distribution = 'GitHub'", as: Tuple(String, String, String)).or_panic.each do |kept|
+  if record = previous[kept[0].downcase]?
+    record["readme"] = kept[1]
+    record["readme_base"] = kept[2]
+  end
 end
 
 # One spelling per repository, the first seen; GitHub's names ignore case.
