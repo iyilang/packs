@@ -180,10 +180,6 @@ overrides, and sends requests through the router in-process: listing order,
 categories, search, sorting, escaping, package pages, JSON, redirects, 404s,
 and the 503 page when the catalog cannot be read.
 
-iyi-sqlite 0.3.1 builds with one warning from inside the driver
-(`REGEXP_FN`, at `sqlite/core.iyi:201`, reached from the pool's connection
-factory on every worker); the fix belongs in the driver.
-
 ## Project layout
 
 - `packs.iyi`: the server; `update.iyi`: the GitHub import; `migrate.iyi`:
