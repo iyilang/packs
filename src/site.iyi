@@ -1,5 +1,6 @@
 module src/site
 
+import std/digest::{SHA256}
 import std/file::{File}
 import std/list::{List}
 import std/text
@@ -29,6 +30,9 @@ CONTENT_SECURITY_POLICY = "default-src 'self'; img-src 'self' data:; style-src '
 # The iyipacks mark: a package with the iyi mascot's face, its `i` eyes and
 # `y` beard. Inline in the header; /logo.svg is the favicon.
 LOGO = File.read("public/logo.svg").strip
+# Changes with the stylesheet and the script, and goes in their URLs, so a
+# browser never runs a copy it cached from an older version of the site.
+ASSET_VERSION = SHA256.hexdigest(File.read("public/style.css") + File.read("public/app.js"))[0, 12]
 
 # The sort orders of a listing and their labels, the first the default.
 SORT_LABELS = List.new([

@@ -7,8 +7,8 @@
 <meta name="color-scheme" content="light dark">
 <title><%= title %> · iyipacks</title>
 <link rel="icon" href="/logo.svg" type="image/svg+xml">
-<link rel="stylesheet" href="/style.css">
-<script src="/app.js" defer></script>
+<link rel="stylesheet" href="/style.css?v=<%= ASSET_VERSION %>">
+<script src="/app.js?v=<%= ASSET_VERSION %>" defer></script>
 </head>
 <body>
 <a class="skip-link" href="#main">Skip to content</a>
