@@ -1,0 +1,31 @@
+module src/storage
+
+import std/env::{ENV}
+import db
+import sqlite
+import db/db/core::{Database}
+import db/db/errors::{DBError}
+import miyrate
+import miyrate/miyrate/errors::{MiyrateError}
+
+# The catalog lives in one SQLite file. Its schema and the hand-written part
+# of the catalog (categories, the standard library, overrides) are the
+# miyrate migrations in db/migrations; `make update` writes the modules it
+# imports from GitHub. Run from the project directory: the default file and
+# the migrations are found relative to it.
+
+# Foreign keys are enforced, so a package cannot name an unknown category,
+# and a writer waits up to five seconds for another one to finish.
+pub DEFAULT_URL = "sqlite3:./data/packs.db?foreign_keys=on&busy_timeout=5000"
+
+pub def database_url : String
+  ENV["DATABASE_URL"]? || DEFAULT_URL
+end
+
+# The pool at *url*, with every pending migration applied.
+pub def open_database(url : String) : Database | MiyrateError | DBError
+  database = Db.open(url)!
+  Miyrate.connection_url = url
+  Miyrate.up(database)!
+  database
+end

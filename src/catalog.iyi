@@ -1,0 +1,113 @@
+module src/catalog
+
+import std/json::{serializable}
+import std/text
+import db/db/core::{Database}
+import db/db/errors::{DBError}
+import db/db/serializable::{db_serializable}
+
+# The catalog as the site reads it: rows of `categories` and of the `listed`
+# view, the packages with their overrides applied and hidden ones left out.
+# Nothing here knows about HTTP.
+
+pub STANDARD = "Standard library"
+
+# A category, with how many listed packages it holds.
+pub struct Category
+  getter slug : String
+  getter name : String
+  getter description : String
+  getter icon : String
+  getter count : Int64
+  derive db_serializable
+  derive serializable
+end
+
+# A listed package. The GitHub numbers and dates are nil for a standard
+# module.
+pub struct Package
+  getter slug : String
+  getter name : String
+  getter module : String
+  getter repo : String?
+  getter category : String
+  getter description : String
+  getter source : String
+  getter homepage : String
+  getter usage : String
+  getter note : String
+  getter license : String
+  getter distribution : String
+  getter stars : Int64?
+  getter forks : Int64?
+  getter issues : Int64?
+  getter watchers : Int64?
+  getter contributors : String?
+  getter created : String?
+  getter pushed : String?
+  getter version : String
+  getter released : String
+  getter requires : String
+  getter dependents : Int64?
+  getter topics : String
+  derive db_serializable
+  derive serializable
+
+  def std? : Bool
+    distribution == STANDARD
+  end
+end
+
+# What /packages.json answers: every category and listed package.
+pub struct Listing
+  getter categories : Array(Category)
+  getter packages : Array(Package)
+  derive serializable
+
+  def initialize(@categories : Array(Category), @packages : Array(Package))
+  end
+end
+
+COLUMNS = "slug, name, module, repo, category, description, source, homepage, usage, note, license, distribution, " +
+          "stars, forks, issues, watchers, contributors, created, pushed, version, released, requires, dependents, topics"
+
+# Packages from GitHub first and the standard library after them, each by name.
+DEFAULT_ORDER = "distribution = 'Standard library', lower(name), slug"
+
+# The ORDER BY of *sort*. The number orders put the highest first and a
+# standard module, which has no GitHub numbers, last; ties keep the default
+# order. An unknown sort is the default.
+def order_by(sort : String) : String
+  case sort
+  when "name"    then "lower(name), slug"
+  when "reverse" then "lower(name) DESC, slug DESC"
+  when "stars"   then "stars IS NULL, stars DESC, " + DEFAULT_ORDER
+  when "used"    then "dependents IS NULL, dependents DESC, " + DEFAULT_ORDER
+  when "updated" then "pushed IS NULL, pushed DESC, " + DEFAULT_ORDER
+  else                DEFAULT_ORDER
+  end
+end
+
+pub def categories(db : Database) : Array(Category) | DBError
+  db.query_all("SELECT c.slug, c.name, c.description, c.icon, " +
+               "(SELECT count(*) FROM listed l WHERE l.category = c.slug) AS count " +
+               "FROM categories c ORDER BY c.position", as: Category)
+end
+
+pub def package_count(db : Database) : Int64 | DBError
+  db.query_one("SELECT count(*) FROM listed", as: Int64)
+end
+
+# The listed packages in *category* (every one when empty) whose name, slug,
+# description or topics contain *query*, ignoring case, sorted by *sort*.
+pub def packages(db : Database, query : String = "", category : String = "", sort : String = "packages") : Array(Package) | DBError
+  needle = query.strip.downcase
+  db.query_all("SELECT " + COLUMNS + " FROM listed " +
+               "WHERE (?1 = '' OR category = ?1) " +
+               "AND (?2 = '' OR instr(lower(name || ' ' || slug || ' ' || description || ' ' || topics), ?2) > 0) " +
+               "ORDER BY " + order_by(sort), category, needle, as: Package)
+end
+
+pub def find_package(db : Database, slug : String) : Package | Nil | DBError
+  db.query_one?("SELECT #{COLUMNS} FROM listed WHERE slug = ?", slug, as: Package)
+end
