@@ -1,0 +1,138 @@
+# The site, served in-process from a scratch catalog: the migrations, two
+# imported modules, one override that corrects a module and one that hides
+# another. Run from the project directory with `iyi test`.
+module site_test
+
+import std/dir::{Dir}
+import std/file::{File}
+import std/json::{JSON}
+import db/db/errors::{DBError}
+import web/iyi_web/router::{RouteHandler}
+import web/iyi_web/harness::*
+import src/storage::{open_database}
+import src/site::{site_routes}
+
+Dir.mkdir_p(".cache")
+PATH = ".cache/site_test.db"
+File.delete(PATH) if File.exists?(PATH)
+db = open_database("sqlite3:./" + PATH + "?foreign_keys=on").or_panic
+std_count = db.query_one("SELECT count(*) FROM packages", as: Int64).or_panic
+assert std_count == 43
+
+insert = "INSERT INTO packages (slug, name, module, repo, category, description, source, usage, distribution, stars, dependents, pushed, version, requires, topics) " +
+         "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'GitHub', ?, ?, ?, ?, ?, ?)"
+db.exec(insert, "alpha", "alpha", "github.com/owner/alpha", "owner/alpha", "other", "first <b>bold</b>", "https://github.com/owner/alpha",
+  "iyi get github.com/owner/alpha", 5_i64, 2_i64, "2026-10-01T00:00:00Z", "v1.0.0", "", "zebra").or_panic
+db.exec(insert, "beta", "Beta", "github.com/owner/beta", "owner/beta", "data", "second", "https://github.com/owner/beta",
+  "iyi get github.com/owner/beta", 9_i64, 0_i64, "2025-01-01T00:00:00Z", "", "github.com/owner/alpha", "").or_panic
+db.exec(insert, "gone", "gone", "github.com/owner/gone", "owner/gone", "data", "hidden", "https://github.com/owner/gone",
+  "iyi get github.com/owner/gone", 1_i64, 0_i64, "2025-01-01T00:00:00Z", "", "", "").or_panic
+db.exec("INSERT INTO overrides (repo, category, description) VALUES ('OWNER/Alpha', 'web', 'Alpha & corrected')").or_panic
+db.exec("INSERT INTO overrides (repo, hidden) VALUES ('owner/gone', 1)").or_panic
+# An override cannot name a category that does not exist.
+assert db.exec("INSERT INTO overrides (repo, category) VALUES ('a/b', 'nowhere')").is_a?(DBError)
+
+app = RouteHandler.new(site_routes(db))
+TOTAL = 45
+
+def get(app : RouteHandler, path : String, query : String = "") : {Int32, String}
+  response = dispatch(app, http_request("GET", path, query)).response
+  {response.status_code, response.body}
+end
+
+# The package slugs of a listing's cards, in page order.
+def cards(page : String) : Array(String)
+  slugs = [] of String
+  page.split("<article class=\"package\">").each_with_index do |chunk, n|
+    next if n == 0
+    slugs << chunk.split("<h3><a href=\"/packages/", 2)[1].split("\"", 2)[0]
+  end
+  slugs
+end
+
+def occurrences(text : String, part : String) : Int32
+  text.split(part).size - 1
+end
+
+home = dispatch(app, "GET", "/").response
+assert home.status_code == 200
+assert (home.headers["Content-Security-Policy"]? || "").includes?("script-src 'self'")
+assert home.headers["X-Content-Type-Options"]? == "nosniff"
+listed = cards(home.body)
+assert listed.size == TOTAL
+assert home.body.includes?("<b>#{TOTAL}</b> packages")
+assert home.body.includes?("#{TOTAL} packages</span>")
+# Packages from GitHub first, the standard library after them, each by name.
+assert listed[0, 2] == ["alpha", "beta"]
+assert (listed.index("base64") || 99) < (listed.index("yaml") || -1)
+assert !listed.includes?("gone")
+assert home.body.includes?("Text &amp; markup") && !home.body.includes?("Text & markup")
+assert !home.body.includes?("<b>bold</b>")
+assert home.body.includes?("Alpha &amp; corrected")
+assert occurrences(home.body, "class=\"badge std\"") == 43
+
+# A category: the override moved alpha into web.
+status, web = get(app, "/categories/web")
+assert status == 200
+web_cards = cards(web)
+assert web_cards.includes?("alpha") && web_cards.includes?("http") && !web_cards.includes?("beta")
+assert web.includes?("<option value=\"web\" selected>")
+assert web.includes?("#{web_cards.size} packages</span>")
+status, by_query = get(app, "/", "category=web")
+assert cards(by_query) == web_cards
+status, cleared = get(app, "/categories/web", "category=")
+assert cards(cleared).size == TOTAL
+status, unknown = get(app, "/", "category=nowhere&sort=sideways")
+assert cards(unknown) == listed
+assert get(app, "/categories/nowhere")[0] == 404
+
+# Search: name, slug, description and topics, ignoring case.
+assert cards(get(app, "/", "q=ALPHA")[1]) == ["alpha"]
+assert cards(get(app, "/", "q=zebra")[1]) == ["alpha"]
+assert cards(get(app, "/", "q=http&category=web")[1]).includes?("http")
+status, attack = get(app, "/", "q=%3Cscript%3Ealert(1)%3C%2Fscript%3E")
+assert cards(attack).empty?
+assert attack.includes?("No packages found.")
+assert attack.includes?("value=\"&lt;script&gt;alert(1)&lt;/script&gt;\"")
+assert !attack.includes?("<script>alert")
+
+# Sorting: the numbers put the highest first and the standard library last.
+by_stars = cards(get(app, "/", "sort=stars")[1])
+assert by_stars[0, 2] == ["beta", "alpha"] && by_stars.size == TOTAL
+by_use = cards(get(app, "/", "sort=used")[1])
+assert by_use[0, 2] == ["alpha", "beta"]
+by_update = cards(get(app, "/", "sort=updated")[1])
+assert by_update[0, 2] == ["alpha", "beta"]
+by_name = cards(get(app, "/", "sort=name")[1])
+assert by_name.size == TOTAL && cards(get(app, "/", "sort=reverse")[1]) == by_name.reversed
+assert get(app, "/", "sort=stars")[1].includes?("<option value=\"stars\" selected>")
+
+# Package pages.
+status, alpha = get(app, "/packages/alpha")
+assert status == 200
+assert alpha.includes?("Alpha &amp; corrected") && alpha.includes?("Get started") && alpha.includes?("https://github.com/owner/alpha")
+assert alpha.includes?("<dd>2 iyi modules</dd>")
+assert get(app, "/packages/beta")[1].includes?("<li><code>github.com/owner/alpha</code></li>")
+assert get(app, "/packages/http")[1].includes?("Included with iyi")
+status, missing = get(app, "/packages/gone")
+assert status == 404 && missing.includes?("Nothing here")
+assert get(app, "/packages/missing")[0] == 404
+assert get(app, "/about")[1].includes?("A good place to start")
+
+# The catalog as JSON.
+document = JSON.parse(get(app, "/packages.json")[1])
+assert document["categories"].as_a.size == 6
+assert document["categories"][0]["icon"].as_s == "↗"
+assert document["packages"].as_a.size == TOTAL
+assert document["packages"][0]["description"].as_s == "Alpha & corrected"
+
+assert get(app, "/health") == {200, "ok"}
+assert dispatch(app, "POST", "/").response.status_code == 405
+moved = dispatch(app, "GET", "/packages/http/index.html").response
+assert moved.status_code == 301 && moved.headers["Location"]? == "/packages/http"
+
+# A catalog that cannot be read is a 503 page, not a crash.
+db.close
+status, down = get(app, "/")
+assert status == 503 && down.includes?("The directory is resting.")
+File.delete(PATH)
