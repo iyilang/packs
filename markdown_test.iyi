@@ -1,0 +1,58 @@
+# What a README turns into on a package page, and what it can never put
+# there: markup of its own, scripts, or links to anything but the web.
+module markdown_test
+
+import src/markdown::*
+
+BASE = "https://github.com/o/r/blob/main/"
+
+def md(text : String) : String
+  render_markdown(text, BASE)
+end
+
+# Blocks.
+assert md("# Title\n\nSome *text* and **more**.") == "<h2>Title</h2>\n<p>Some <em>text</em> and <strong>more</strong>.</p>\n"
+assert md("Title\n=====\nSub\n---") == "<h2>Title</h2>\n<h3>Sub</h3>\n"
+assert md("###### deep") == "<h6>deep</h6>\n"
+assert md("```iyi\nputs \"<hi>\"\n```") == "<pre><code>puts &quot;&lt;hi&gt;&quot;</code></pre>\n"
+assert md("    indented\n    code\n\nafter") == "<pre><code>indented\ncode</code></pre>\n<p>after</p>\n"
+assert md("- one\n- two\n  more\n\n- three") == "<ul>\n<li>one</li>\n<li>two more</li>\n<li>three</li>\n</ul>\n"
+assert md("1. first\n2) second") == "<ol>\n<li>first</li>\n<li>second</li>\n</ol>\n"
+assert md("> quoted\n> line") == "<blockquote>\n<p>quoted line</p>\n</blockquote>\n"
+assert md("| a | b |\n|---|:-:|\n| 1 | `x|` |").includes?("<th>a</th><th>b</th>")
+assert md("text\n\n---\n\nmore") == "<p>text</p>\n<hr>\n<p>more</p>\n"
+assert md("snake_case_name and 2*3*4") == "<p>snake_case_name and 2<em>3</em>4</p>\n"
+
+# Links: relative ones read against the README's directory, anchors and
+# other schemes kept as text, every link marked as the author's.
+assert md("[docs](docs/a.md)") == "<p><a href=\"https://github.com/o/r/blob/main/docs/a.md\" rel=\"nofollow ugc\">docs</a></p>\n"
+assert md("[root](/LICENSE)") == "<p><a href=\"https://github.com/o/r/blob/main/LICENSE\" rel=\"nofollow ugc\">root</a></p>\n"
+assert md("[web](https://iyi.dev \"title\")") == "<p><a href=\"https://iyi.dev\" rel=\"nofollow ugc\">web</a></p>\n"
+assert md("<https://iyi.dev>") == "<p><a href=\"https://iyi.dev\" rel=\"nofollow ugc\">https://iyi.dev</a></p>\n"
+assert md("[up](#install)") == "<p>up</p>\n"
+assert resolve("docs/x.md", "") == nil
+
+# Badges and images are left out; so is raw HTML.
+assert md("[![CI](https://x/badge.svg)](https://x) Fast.") == "<p> Fast.</p>\n"
+assert md("<p align=\"center\">\n<img src=\"x.png\">\n</p>\n\nText") == "<p>Text</p>\n"
+
+# Nothing a README says becomes markup or a script.
+attacks = [
+  "<script>alert(1)</script>",
+  "[x](javascript:alert(1))",
+  "[x](JaVaScRiPt:alert(1))",
+  "[x](data:text/html,<script>alert(1)</script>)",
+  "[x](vbscript:msgbox)",
+  "[x](https://a\" onmouseover=\"alert(1))",
+  "<img src=x onerror=alert(1)>",
+  "`<b>` **<i>**",
+  "# <svg onload=alert(1)>",
+  "| <b> | x |\n|---|---|\n| <script> | y |",
+]
+attacks.each do |attack|
+  html = md(attack)
+  assert !html.includes?("<script")
+  assert !html.includes?("javascript:") && !html.includes?("JaVaScRiPt:") && !html.includes?("vbscript:") && !html.includes?("data:")
+  assert !html.includes?("<img") && !html.includes?("<svg") && !html.includes?("<b>") && !html.includes?("<i>")
+  assert !html.includes?("\" onmouseover")
+end

@@ -1,0 +1,380 @@
+module src/markdown
+
+import std/html::{HTML}
+import std/indexable
+import std/text
+
+# A README's Markdown as HTML for a package page. Headings, paragraphs,
+# emphasis, code, lists, quotes, tables, rules and links are written; raw
+# HTML and images are left out, and every character of the README is
+# escaped, so the only markup on the page is what this module writes. A
+# link goes to an http(s) or mailto address only, read against *base* (the
+# README's directory on GitHub) when it is relative, and carries
+# rel="nofollow ugc": its author is not iyipacks.
+
+# READMEs longer than this are cut.
+MAX_SIZE = 200_000
+
+pub def render_markdown(source : String, base : String) : String
+  source = source[0, MAX_SIZE] if source.size > MAX_SIZE
+  String.build { |html| blocks(source.gsub("\r\n", "\n").gsub('\t', "    ").split('\n'), base, html) }
+end
+
+def blocks(lines : Array(String), base : String, html : String::Builder) : Nil
+  paragraph = [] of String
+  i = 0
+  while i < lines.size
+    line = lines[i]
+    stripped = line.strip
+
+    if fence = fence_of(stripped)
+      flush(paragraph, base, html)
+      code = [] of String
+      i += 1
+      while i < lines.size && !lines[i].strip.starts_with?(fence)
+        code << lines[i]
+        i += 1
+      end
+      html << "<pre><code>" << HTML.escape(code.join("\n")) << "</code></pre>\n"
+      i += 1
+      next
+    end
+
+    if stripped.empty?
+      flush(paragraph, base, html)
+      i += 1
+      next
+    end
+
+    # Raw HTML runs to the next blank line, and is left out.
+    if html_line?(stripped) && paragraph.empty?
+      while i < lines.size && !lines[i].strip.empty?
+        i += 1
+      end
+      next
+    end
+
+    # A line under a paragraph made of = or - turns it into a heading.
+    if !paragraph.empty? && underline?(stripped)
+      level = stripped[0] == '=' ? 2 : 3
+      html << "<h#{level}>" << inline(paragraph.join(" "), base) << "</h#{level}>\n"
+      paragraph.clear
+      i += 1
+      next
+    end
+
+    if level = heading_level(stripped)
+      flush(paragraph, base, html)
+      text = stripped[level, stripped.size].strip.rstrip('#').strip
+      tag = level + 1 > 6 ? 6 : level + 1
+      html << "<h#{tag}>" << inline(text, base) << "</h#{tag}>\n"
+      i += 1
+      next
+    end
+
+    if rule?(stripped)
+      flush(paragraph, base, html)
+      html << "<hr>\n"
+      i += 1
+      next
+    end
+
+    if paragraph.empty? && line.starts_with?("    ")
+      code = [] of String
+      while i < lines.size && (lines[i].starts_with?("    ") || lines[i].strip.empty?)
+        code << (lines[i].size > 4 ? lines[i][4, lines[i].size] : "")
+        i += 1
+      end
+      while !code.empty? && code.last.strip.empty?
+        code.pop
+      end
+      html << "<pre><code>" << HTML.escape(code.join("\n")) << "</code></pre>\n"
+      next
+    end
+
+    if stripped.starts_with?(">")
+      flush(paragraph, base, html)
+      quoted = [] of String
+      while i < lines.size && lines[i].strip.starts_with?(">")
+        rest = lines[i].strip[1, lines[i].strip.size]
+        quoted << (rest.starts_with?(" ") ? rest[1, rest.size] : rest)
+        i += 1
+      end
+      html << "<blockquote>\n"
+      blocks(quoted, base, html)
+      html << "</blockquote>\n"
+      next
+    end
+
+    if list_marker(stripped)
+      flush(paragraph, base, html)
+      i = list(lines, i, base, html)
+      next
+    end
+
+    if stripped.includes?("|") && i + 1 < lines.size && table_rule?(lines[i + 1].strip)
+      flush(paragraph, base, html)
+      i = table(lines, i, base, html)
+      next
+    end
+
+    paragraph << stripped
+    i += 1
+  end
+  flush(paragraph, base, html)
+end
+
+def flush(paragraph : Array(String), base : String, html : String::Builder) : Nil
+  return if paragraph.empty?
+  text = inline(paragraph.join(" "), base)
+  html << "<p>" << text << "</p>\n" unless text.strip.empty?
+  paragraph.clear
+end
+
+# The fence a code block opens with, ``` or ~~~, or nil.
+def fence_of(line : String) : String?
+  return "```" if line.starts_with?("```")
+  return "~~~" if line.starts_with?("~~~")
+  nil
+end
+
+# Whether *line* opens with an HTML tag, `<name`, `</` or `<!`; an autolink
+# such as `<https://...>` is not one.
+def html_line?(line : String) : Bool
+  return false unless line.starts_with?("<") && line.size > 1
+  return true if line[1] == '/' || line[1] == '!'
+  return false unless line[1].ascii_letter?
+  i = 1
+  while i < line.size && (line[i].ascii_alphanumeric? || line[i] == '-')
+    i += 1
+  end
+  i == line.size || line[i] == ' ' || line[i] == '>' || line[i] == '/'
+end
+
+def underline?(line : String) : Bool
+  line.size >= 2 && (line.chars.all? { |c| c == '=' } || line.chars.all? { |c| c == '-' })
+end
+
+# 1 to 6 for `# ` to `###### `, nil for any other line.
+def heading_level(line : String) : Int32?
+  level = 0
+  while level < line.size && line[level] == '#'
+    level += 1
+  end
+  return nil if level == 0 || level > 6
+  return level if level == line.size || line[level] == ' '
+  nil
+end
+
+def rule?(line : String) : Bool
+  marks = line.delete(' ')
+  marks.size >= 3 && (marks.chars.all? { |c| c == '-' } || marks.chars.all? { |c| c == '*' } || marks.chars.all? { |c| c == '_' })
+end
+
+# The text after a list item's marker and whether the list is ordered, or
+# nil when *line* is not an item.
+def list_marker(line : String) : {String, Bool}?
+  if line.size >= 2 && (line[0] == '-' || line[0] == '*' || line[0] == '+') && line[1] == ' '
+    return {line[2, line.size].strip, false}
+  end
+  digits = 0
+  while digits < line.size && digits < 9 && line[digits].ascii_number?
+    digits += 1
+  end
+  if digits > 0 && digits + 1 < line.size && (line[digits] == '.' || line[digits] == ')') && line[digits + 1] == ' '
+    return {line[digits + 2, line.size].strip, true}
+  end
+  nil
+end
+
+# Writes the list that starts at *start*; answers the index after it.
+# Nested items are written in the same list.
+def list(lines : Array(String), start : Int32, base : String, html : String::Builder) : Int32
+  first = list_marker(lines[start].strip)
+  ordered = first ? first[1] : false
+  items = [] of String
+  i = start
+  while i < lines.size
+    stripped = lines[i].strip
+    if item = list_marker(stripped)
+      items << item[0]
+    elsif stripped.empty?
+      following = i + 1 < lines.size ? lines[i + 1] : ""
+      break unless list_marker(following.strip) || following.starts_with?("  ")
+    elsif lines[i].starts_with?("  ") && !items.empty?
+      items[-1] = items[-1] + " " + stripped
+    else
+      break
+    end
+    i += 1
+  end
+  tag = ordered ? "ol" : "ul"
+  html << "<#{tag}>\n"
+  items.each { |item| html << "<li>" << inline(item, base) << "</li>\n" }
+  html << "</#{tag}>\n"
+  i
+end
+
+def table_rule?(line : String) : Bool
+  return false unless line.includes?("-")
+  line.chars.all? { |c| c == '|' || c == '-' || c == ':' || c == ' ' }
+end
+
+def cells(line : String) : Array(String)
+  row = line.strip
+  row = row[1, row.size] if row.starts_with?("|")
+  row = row[0, row.size - 1] if row.ends_with?("|") && !row.ends_with?("\\|")
+  row.split('|').map(&.strip)
+end
+
+def table(lines : Array(String), start : Int32, base : String, html : String::Builder) : Int32
+  html << "<div class=\"table-wrap\"><table>\n<thead><tr>"
+  cells(lines[start]).each { |cell| html << "<th>" << inline(cell, base) << "</th>" }
+  html << "</tr></thead>\n<tbody>\n"
+  i = start + 2
+  while i < lines.size && lines[i].includes?("|") && !lines[i].strip.empty?
+    html << "<tr>"
+    cells(lines[i]).each { |cell| html << "<td>" << inline(cell, base) << "</td>" }
+    html << "</tr>\n"
+    i += 1
+  end
+  html << "</tbody>\n</table></div>\n"
+  i
+end
+
+# *text* with its emphasis, code spans and links, everything else escaped.
+pub def inline(text : String, base : String) : String
+  html = String::Builder.new
+  i = 0
+  while i < text.size
+    c = text[i]
+    if c == '\\' && i + 1 < text.size && !text[i + 1].ascii_alphanumeric?
+      html << HTML.escape(text[i + 1].to_s)
+      i += 2
+    elsif c == '`'
+      run = 0
+      while i + run < text.size && text[i + run] == '`'
+        run += 1
+      end
+      ticks = "`" * run
+      close = text.index(ticks, i + run)
+      if close
+        html << "<code>" << HTML.escape(text[i + run, close - i - run].strip) << "</code>"
+        i = close + run
+      else
+        html << HTML.escape(ticks)
+        i += run
+      end
+    elsif c == '!' && i + 1 < text.size && text[i + 1] == '['
+      # An image: left out, with its alt text.
+      parsed = link_at(text, i + 1)
+      if parsed
+        i = parsed[2]
+      else
+        html << "!"
+        i += 1
+      end
+    elsif c == '['
+      parsed = link_at(text, i)
+      if parsed
+        label = inline(parsed[0], base)
+        href = resolve(parsed[1], base)
+        if label.strip.empty?
+          # A link around an image alone, a badge: left out with it.
+        elsif href
+          html << "<a href=\"" << HTML.escape(href) << "\" rel=\"nofollow ugc\">" << label << "</a>"
+        else
+          html << label
+        end
+        i = parsed[2]
+      else
+        html << "["
+        i += 1
+      end
+    elsif c == '<'
+      close = text.index('>', i)
+      inside = close ? text[i + 1, close - i - 1] : ""
+      if close && (inside.starts_with?("https://") || inside.starts_with?("http://")) && !inside.includes?(" ")
+        html << "<a href=\"" << HTML.escape(inside) << "\" rel=\"nofollow ugc\">" << HTML.escape(inside) << "</a>"
+        i = close + 1
+      elsif close && inside.size > 0 && (inside[0].ascii_letter? || inside[0] == '/')
+        # Inline HTML: the tag is left out, its text kept.
+        i = close + 1
+      else
+        html << "&lt;"
+        i += 1
+      end
+    elsif (c == '*' || c == '_') && i + 1 < text.size && text[i + 1] == c
+      delimiter = c.to_s * 2
+      close = text.index(delimiter, i + 2)
+      if close && close > i + 2
+        html << "<strong>" << inline(text[i + 2, close - i - 2], base) << "</strong>"
+        i = close + 2
+      else
+        html << HTML.escape(delimiter)
+        i += 2
+      end
+    elsif (c == '*' || c == '_') && (c == '*' || i == 0 || !text[i - 1].ascii_alphanumeric?)
+      close = text.index(c, i + 1)
+      if close && close > i + 1 && text[i + 1] != ' ' && (c == '*' || close + 1 >= text.size || !text[close + 1].ascii_alphanumeric?)
+        html << "<em>" << inline(text[i + 1, close - i - 1], base) << "</em>"
+        i = close + 1
+      else
+        html << c
+        i += 1
+      end
+    else
+      html << HTML.escape(c.to_s)
+      i += 1
+    end
+  end
+  html.to_s
+end
+
+# The label, destination and end of the `[label](destination)` at *start*,
+# or nil.
+def link_at(text : String, start : Int32) : {String, String, Int32}?
+  depth = 0
+  i = start
+  while i < text.size
+    c = text[i]
+    if c == '\\'
+      i += 2
+      next
+    end
+    depth += 1 if c == '['
+    if c == ']'
+      depth -= 1
+      break if depth == 0
+    end
+    i += 1
+  end
+  return nil unless i < text.size && i + 1 < text.size && text[i + 1] == '('
+  label = text[start + 1, i - start - 1]
+  close = text.index(')', i + 2)
+  return nil unless close
+  destination = text[i + 2, close - i - 2].strip
+  destination = destination.split(' ')[0]? || ""
+  destination = destination[1, destination.size - 2] if destination.starts_with?("<") && destination.ends_with?(">")
+  {label, destination, close + 1}
+end
+
+# Where *url* leads, read against *base*; nil for a link that is not to be
+# followed: an anchor on GitHub's page, or any scheme but http(s) and mailto.
+pub def resolve(url : String, base : String) : String?
+  return nil if url.empty? || url.starts_with?("#") || url.starts_with?("//")
+  lower = url.downcase
+  return url if lower.starts_with?("https://") || lower.starts_with?("http://") || lower.starts_with?("mailto:")
+  colon = url.index(':')
+  slash = url.index('/') || url.size
+  return nil if colon && colon < slash
+  return nil if base.empty?
+  if url.starts_with?("/")
+    blob = base.index("/blob/")
+    return nil unless blob
+    branch_end = base.index('/', blob + 6) || base.size
+    return base[0, branch_end] + url
+  end
+  url = url[2, url.size] if url.starts_with?("./")
+  base.ends_with?("/") ? base + url : base + "/" + url
+end
