@@ -12,17 +12,21 @@
 <div class="hero-art">
 <div class="art-label">EXAMPLE: HOW TO START USING A PACKAGE.</div>
 <div class="art-term">
-<div class="art-line"><span class="art-prompt">&gt;</span> iyi get github.com/domify/toml</div>
-<div class="art-line art-out"><span class="art-ok">added</span> github.com/domify/toml v0.1.0</div>
+<div class="art-line"><span class="art-prompt">&gt;</span> iyi get github.com/sdogruyol/iyi-web --as web</div>
+<div class="art-line art-out"><span class="art-ok">added</span> github.com/sdogruyol/iyi-web v0.6.0</div>
 </div>
 <div class="art-file">
 <div class="art-name">your_app.iyi</div>
-<div class="art-line art-add">import github.com/domify/toml::{TOML}</div>
-<div class="art-line art-add">toml = TOML.parse(%(status = "It works!"))</div>
-<div class="art-line art-add">puts toml["status"]</div>
+<div class="art-line art-add">import web/iyi_web/dsl::*</div>
+<div class="art-line art-add">get "/" do |env|</div>
+<div class="art-line art-add">&nbsp;&nbsp;"It works!"</div>
+<div class="art-line art-add">end</div>
+<div class="art-line art-add">run</div>
 </div>
 <div class="art-term">
 <div class="art-line"><span class="art-prompt">&gt;</span> iyi run your_app.iyi</div>
+<div class="art-line art-out">iyi-web is ready to lead at http://localhost:3000</div>
+<div class="art-line"><span class="art-prompt">&gt;</span> curl localhost:3000</div>
 <div class="art-line art-out">It works!</div>
 </div>
 </div>
