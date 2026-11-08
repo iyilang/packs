@@ -1,0 +1,9 @@
+/bin/
+/.cache/
+/.env
+/data/*.db-journal
+/data/*.db-wal
+/data/*.db-shm
+*.exe
+*.pdb
+*.dll
