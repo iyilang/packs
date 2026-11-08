@@ -30,9 +30,11 @@ Requirements: **iyi 0.20.1 or later**, `make`, and the SQLite library:
 From the project root:
 
 ```sh
-make serve       # http://localhost:3000; PORT=8080 make serve for another port
+make serve       # http://localhost:3000
 ```
 
+`PACKS_PORT` sets the port the site listens on: `PACKS_PORT=8080 make serve`.
+`-p` on the command line comes before it, and iyi-web's `PORT` after it.
 The server applies pending migrations to `data/packs.db` before it listens.
 `DATABASE_URL` names another catalog, e.g.
 `DATABASE_URL='sqlite3:./other.db?foreign_keys=on'`. `IYI_WEB_ENV=production`

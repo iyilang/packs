@@ -2,7 +2,9 @@
 # GitHub, served from the catalog in SQLite. Run from the project directory:
 #
 #   iyi run packs.iyi                 # http://localhost:3000
-#   iyi run packs.iyi -- -p 8080      # PORT works too
+#   PACKS_PORT=8080 iyi run packs.iyi
+#
+# The port is `-p`'s, else PACKS_PORT's, else PORT's, else 3000.
 #
 # DATABASE_URL names the catalog (default sqlite3:./data/packs.db); pending
 # migrations in db/migrations are applied before the server listens.
@@ -12,9 +14,19 @@ import std/env::{ENV}
 import db/db/core::{Database}
 import db/db/errors::{DBError}
 import miyrate/miyrate/errors::{MiyrateError}
+import web/iyi_web/config::{config}
 import web/iyi_web/dsl::*
 import src/storage::{database_url, open_database}
 import src/site::{site_routes}
+
+if packs_port = ENV["PACKS_PORT"]?
+  port = packs_port.to_i?
+  unless port && port >= 0 && port <= 65535
+    STDERR.puts "PACKS_PORT must be a port number between 0 and 65535, not " + packs_port.inspect
+    exit 1
+  end
+  config.port = port
+end
 
 url = database_url
 database = case opened = open_database(url)
