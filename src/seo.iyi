@@ -1,0 +1,165 @@
+module src/seo
+
+import std/env::{ENV}
+import std/html::{HTML}
+import std/json::{JSON, Builder}
+import std/text
+import src/catalog::{Category, Package}
+
+# What search engines and link previews read: each page's title,
+# description, canonical address and structured data, the sitemap and
+# robots.txt. Addresses are absolute, under PACKS_URL.
+
+# The address the site is served at, without a trailing slash.
+pub SITE_URL = (ENV["PACKS_URL"]? || "https://packs.iyi.dev").rstrip('/')
+pub SITE_NAME = "iyipacks"
+pub SITE_DESCRIPTION = "Find iyi packages: the iyi standard library and every iyi module on GitHub, with stars, versions, dependencies and install commands."
+# The card link previews show, 1200 by 630.
+pub SOCIAL_IMAGE = "/og.png"
+
+# The head of one page.
+pub struct Meta
+  getter title : String
+  getter description : String
+  # The canonical path, nil for a page that has none (an error page).
+  getter path : String?
+  # False for a page search engines should follow but not list: search
+  # results, other sort orders, error pages.
+  getter index : Bool
+  # JSON-LD, empty for none.
+  getter structured : String
+
+  def initialize(@title : String, @description : String, @path : String? = nil, @index : Bool = true, @structured : String = "")
+  end
+
+  def canonical : String?
+    if path = @path
+      SITE_URL + path
+    end
+  end
+end
+
+# *text* cut to at most *size* characters at a word, with an ellipsis when
+# it was cut.
+pub def clip(text : String, size : Int32 = 160) : String
+  text = text.strip
+  return text if text.size <= size
+  cut = text[0, size - 1]
+  space = cut.rindex(' ')
+  cut = cut[0, space] if space && space > size // 2
+  cut.rstrip(" ,.;:-") + "…"
+end
+
+# JSON-LD as it may go inside a <script> element: `<` written as `\u003c`,
+# so no value can close the element.
+def script_safe(json : String) : String
+  json.gsub("<", "\\u003c")
+end
+
+def breadcrumbs(json : Builder, trail : Array({String, String})) : Nil
+  json.object do
+    json.field("@type", "BreadcrumbList")
+    json.field("itemListElement") do
+      json.array do
+        trail.each_with_index do |crumb, index|
+          json.object do
+            json.field("@type", "ListItem")
+            json.field("position", index + 1)
+            json.field("name", crumb[0])
+            json.field("item", SITE_URL + crumb[1])
+          end
+        end
+      end
+    end
+  end
+end
+
+pub def website_data : String
+  script_safe(JSON.build do |json|
+    json.object do
+      json.field("@context", "https://schema.org")
+      json.field("@type", "WebSite")
+      json.field("name", SITE_NAME)
+      json.field("url", SITE_URL + "/")
+      json.field("description", SITE_DESCRIPTION)
+      json.field("inLanguage", "en")
+    end
+  end)
+end
+
+pub def category_data(category : Category) : String
+  script_safe(JSON.build do |json|
+    json.object do
+      json.field("@context", "https://schema.org")
+      json.field("@graph") do
+        json.array do
+          json.object do
+            json.field("@type", "CollectionPage")
+            json.field("name", category.name + " iyi packages")
+            json.field("description", category.description)
+            json.field("url", SITE_URL + "/categories/" + category.slug)
+          end
+          breadcrumbs(json, [{"Packages", "/"}, {category.name, "/categories/" + category.slug}])
+        end
+      end
+    end
+  end)
+end
+
+pub def package_data(pack : Package, category : Category?) : String
+  path = "/packages/" + pack.slug
+  trail = [{"Packages", "/"}]
+  trail << {category.name, "/categories/" + category.slug} if category
+  trail << {pack.name, path}
+  script_safe(JSON.build do |json|
+    json.object do
+      json.field("@context", "https://schema.org")
+      json.field("@graph") do
+        json.array do
+          json.object do
+            json.field("@type", "SoftwareSourceCode")
+            json.field("name", pack.name)
+            json.field("description", pack.description) unless pack.description.empty?
+            json.field("url", SITE_URL + path)
+            json.field("codeRepository", pack.source)
+            json.field("programmingLanguage", "iyi")
+            json.field("license", "https://spdx.org/licenses/" + pack.license + ".html") unless pack.license.empty?
+            json.field("version", pack.version) unless pack.version.empty?
+            if created = pack.created
+              json.field("dateCreated", created)
+            end
+            if pushed = pack.pushed
+              json.field("dateModified", pushed)
+            end
+            json.field("keywords", pack.topics.split.join(", ")) unless pack.topics.empty?
+          end
+          breadcrumbs(json, trail)
+        end
+      end
+    end
+  end)
+end
+
+# The sitemap: the listing, the about page, every category and every listed
+# package, a module with its last push as its last change.
+pub def sitemap(categories : Array(Category), packages : Array(Package)) : String
+  String.build do |xml|
+    xml << "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+    xml << "<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n"
+    sitemap_url(xml, "/", nil)
+    categories.each { |c| sitemap_url(xml, "/categories/" + c.slug, nil) }
+    packages.each { |pack| sitemap_url(xml, "/packages/" + pack.slug, pack.pushed) }
+    sitemap_url(xml, "/about", nil)
+    xml << "</urlset>\n"
+  end
+end
+
+def sitemap_url(xml : String::Builder, path : String, modified : String?) : Nil
+  xml << "<url><loc>" << HTML.escape(SITE_URL + path) << "</loc>"
+  xml << "<lastmod>" << HTML.escape(modified) << "</lastmod>" if modified
+  xml << "</url>\n"
+end
+
+pub def robots_txt : String
+  "User-agent: *\nAllow: /\n\nSitemap: " + SITE_URL + "/sitemap.xml\n"
+end

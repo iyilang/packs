@@ -169,6 +169,20 @@ footer{border-top:1px solid var(--hairline);display:flex;gap:22px;align-items:ce
 .detail h2{font-weight:500;font-size:22px;margin:30px 0 15px}
 .detail p{color:var(--mute)}
 pre{white-space:pre-wrap;overflow-wrap:anywhere;background:var(--raise);border:1px solid var(--hairline);padding:24px;border-radius:8px;color:var(--brand-deep);font-size:13px}
+.breadcrumbs{display:flex;flex-wrap:wrap;align-items:center;gap:8px;color:var(--mute);font-size:14px}
+.breadcrumbs .text-link{gap:0}
+.detail-grid ul a{color:var(--brand);text-decoration:underline;text-underline-offset:2px}
+.readme{border-top:1px solid var(--hairline);margin-top:10px;overflow-wrap:anywhere}
+.readme h2,.readme h3,.readme h4,.readme h5,.readme h6{font-weight:500;margin:26px 0 12px}
+.readme h2{font-size:20px}.readme h3{font-size:17px}.readme h4,.readme h5,.readme h6{font-size:15px}
+.readme p,.readme li{color:var(--graphite)}
+.readme a{color:var(--brand);text-decoration:underline;text-underline-offset:2px}
+.readme ul,.readme ol{padding-left:22px}
+.readme blockquote{margin:0;padding-left:16px;border-left:3px solid var(--hairline)}
+.readme hr{border:0;border-top:1px solid var(--hairline);margin:24px 0}
+.table-wrap{overflow-x:auto}
+.readme table{border-collapse:collapse;font-size:14px}
+.readme th,.readme td{border:1px solid var(--hairline);padding:6px 10px;text-align:left}
 .metadata{border:1px solid var(--hairline);border-radius:8px;background:var(--raise);padding:24px;align-self:start}
 .metadata h3{font-size:17px;font-weight:500}
 .metadata dt{font-size:11px;color:var(--mute);margin-top:18px}

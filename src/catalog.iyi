@@ -111,3 +111,28 @@ end
 pub def find_package(db : Database, slug : String) : Package | Nil | DBError
   db.query_one?("SELECT #{COLUMNS} FROM listed WHERE slug = ?", slug, as: Package)
 end
+
+# The listed packages whose iyi.mod requires the module at *path*, by name.
+pub def used_by(db : Database, path : String) : Array(Package) | DBError
+  return [] of Package if path.empty?
+  db.query_all("SELECT " + COLUMNS + " FROM listed " +
+               "WHERE instr(' ' || lower(requires) || ' ', ' ' || lower(?) || ' ') > 0 " +
+               "ORDER BY lower(name), slug", path, as: Package)
+end
+
+# The slug of each listed module, by its module path in lower case, so a
+# page can link the modules it names.
+pub def slugs_by_module(db : Database) : Hash(String, String) | DBError
+  slugs = {} of String => String
+  db.query_all("SELECT lower(module), slug FROM listed WHERE module <> ''", as: Tuple(String, String))!.each do |row|
+    slugs[row[0]] = row[1]
+  end
+  slugs
+end
+
+# A module's README as GitHub serves it, and the address its relative links
+# are read against; empty for none.
+pub def readme(db : Database, slug : String) : {String, String} | DBError
+  found = db.query_one?("SELECT readme, readme_base FROM packages WHERE slug = ?", slug, as: Tuple(String, String))!
+  found || {"", ""}
+end

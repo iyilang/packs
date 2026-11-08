@@ -15,6 +15,8 @@ import web/iyi_web/router::{Router}
 import web/iyi_web/templates::{render, raw}
 import src/catalog::*
 import src/modules::{activity, ago}
+import src/markdown::{render_markdown}
+import src/seo::*
 
 # The pages of the directory, rendered on each request from the catalog in
 # SQLite. The HTML is in the `.eiy` templates under src/views/, compiled into
@@ -73,7 +75,8 @@ def summary(pack : Package, now : Time) : String
 end
 
 # The listing of *category* ("" for all) with the search and sort the
-# visitor chose.
+# visitor chose. A search or another sort order is followed by search
+# engines but not listed: the plain listing is the page to find.
 def listing_page(db : Database, category : String, query : String, sort : String) : String | DBError
   categories = categories(db)!
   category = "" unless categories.any? { |c| c.slug == category }
@@ -81,7 +84,15 @@ def listing_page(db : Database, category : String, query : String, sort : String
   packages = packages(db, query, category, sort)!
   total = package_count(db)!
   now = Time.utc
-  title = category.empty? ? "iyi packages" : category_name(categories, category)
+  plain = query.strip.empty? && sort == "packages"
+  chosen = categories.find { |c| c.slug == category }
+  meta = if chosen
+           Meta.new("#{chosen.name} iyi packages · iyipacks",
+             clip("#{chosen.name} for iyi: #{chosen.description} #{chosen.count} packages from the iyi standard library and GitHub, with stars, versions and install commands."),
+             "/categories/" + chosen.slug, plain, plain ? category_data(chosen) : "")
+         else
+           Meta.new("iyipacks: iyi packages and modules", SITE_DESCRIPTION, "/", plain, plain ? website_data : "")
+         end
   render "views/listing.eiy", "views/layout.eiy"
 end
 
@@ -89,23 +100,40 @@ def detail_page(db : Database, slug : String) : String | StatusError | DBError
   pack = find_package(db, slug)!
   return StatusError.new(404) unless pack
   categories = categories(db)!
+  category = categories.find { |c| c.slug == pack.category }
+  modules = slugs_by_module(db)!
+  users = used_by(db, pack.module)!
+  readme_source, readme_base = readme(db, pack.slug)!
+  readme_html = readme_source.strip.empty? ? "" : render_markdown(readme_source, readme_base)
+  requires = pack.requires.split(' ').reject(&.empty?)
   now = Time.utc
-  title = pack.name
+  meta = Meta.new(clip(pack.description.empty? ? "#{pack.name} for iyi" : "#{pack.name}: #{pack.description}", 60) + " · iyipacks",
+    clip(package_summary(pack, users.size)), "/packages/" + pack.slug, true, package_data(pack, category))
   render "views/detail.eiy", "views/layout.eiy"
 end
 
+# The description search engines show for a package.
+def package_summary(pack : Package, users : Int32) : String
+  lead = pack.description.empty? ? pack.name : pack.description.rstrip('.')
+  return "#{lead}. Part of the iyi standard library: #{pack.usage}." if pack.std?
+  parts = ["#{lead}. Install with #{pack.usage}."]
+  parts << "Latest #{pack.version}." unless pack.version.empty?
+  parts << "Used by #{users} iyi #{users == 1 ? "module" : "modules"}." if users > 0
+  parts.join(" ")
+end
+
 def about_page : String
-  title = "About"
+  meta = Meta.new("About iyipacks, the iyi package directory", "What iyipacks lists, how an iyi module gets listed, and where its numbers come from.", "/about")
   render "views/about.eiy", "views/layout.eiy"
 end
 
 def not_found_page : String
-  title = "Page not found"
+  meta = Meta.new("Page not found · iyipacks", "This page or package does not exist.", nil, false)
   render "views/not_found.eiy", "views/layout.eiy"
 end
 
 def unavailable_page : String
-  title = "Unavailable"
+  meta = Meta.new("Unavailable · iyipacks", "The catalog cannot be read right now.", nil, false)
   render "views/unavailable.eiy", "views/layout.eiy"
 end
 
@@ -122,6 +150,8 @@ pub def site_routes(db : Database) : Router
     env.response.headers["Content-Security-Policy"] = CONTENT_SECURITY_POLICY
     env.response.headers["X-Content-Type-Options"] = "nosniff"
     env.response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    # The numbers change only when the catalog is imported.
+    env.response.headers["Cache-Control"] = "public, max-age=300"
   end
 
   router.get "/" do |env|
@@ -157,7 +187,24 @@ pub def site_routes(db : Database) : Router
     end
   end
 
+  router.get "/sitemap.xml" do |env|
+    case found = categories(db)
+    in DBError then found
+    in Array(Category)
+      case listed = packages(db)
+      in DBError then listed
+      in Array(Package) then env.xml(sitemap(found, listed))
+      end
+    end
+  end
+
+  router.get "/robots.txt" do |env|
+    env.text(robots_txt)
+  end
+
   router.get "/health" do |env|
+    env.response.headers["Cache-Control"] = "no-store"
+    env.response.headers["X-Robots-Tag"] = "noindex"
     case count = package_count(db)
     in DBError then count
     in Int64 then env.text("ok")

@@ -1,6 +1,5 @@
 <section class="detail">
-<a class="text-link" href="/#catalog">← Back to packages</a>
-<div class="eyebrow"><%= category_name(categories, pack.category) %></div>
+<nav class="breadcrumbs" aria-label="Breadcrumb"><a class="text-link" href="/#catalog">Packages</a> / <% if category -%><a class="text-link" href="/categories/<%= category.slug %>"><%= category.name %></a> / <% end -%><span aria-current="page"><%= pack.name %></span></nav>
 <h1><%= pack.name %><span class="accent">.</span></h1>
 <p class="lead"><%= pack.description %></p>
 <span class="badge <%= badge_class(pack) %>"><%= badge(pack) %></span>
@@ -18,14 +17,29 @@
 <h2>Notes</h2>
 <p><%= pack.note %></p>
 <% end -%>
-<% requires = pack.requires.split(' ').reject(&.empty?) -%>
 <% unless requires.empty? -%>
 <h2>Requires</h2>
 <ul>
 <% requires.each do |path| -%>
+<% if required = modules[path.downcase]? -%>
+<li><a href="/packages/<%= required %>"><code><%= path %></code></a></li>
+<% else -%>
 <li><code><%= path %></code></li>
 <% end -%>
+<% end -%>
 </ul>
+<% end -%>
+<% unless users.empty? -%>
+<h2>Used by</h2>
+<ul>
+<% users.each do |user| -%>
+<li><a href="/packages/<%= user.slug %>"><%= user.name %></a><% unless user.description.empty? %>: <%= user.description %><% end %></li>
+<% end -%>
+</ul>
+<% end -%>
+<% unless readme_html.empty? -%>
+<h2>README</h2>
+<div class="readme"><%= raw(readme_html) %></div>
 <% end -%>
 <% end -%>
 </div>

@@ -31,6 +31,8 @@ db.exec("INSERT INTO overrides (repo, category, description) VALUES ('OWNER/Alph
 db.exec("INSERT INTO overrides (repo, hidden) VALUES ('owner/gone', 1)").or_panic
 # An override cannot name a category that does not exist.
 assert db.exec("INSERT INTO overrides (repo, category) VALUES ('a/b', 'nowhere')").is_a?(DBError)
+db.exec("UPDATE packages SET readme = ?, readme_base = ? WHERE slug = 'alpha'",
+  "# Alpha\n\nRead the [guide](docs/guide.md).\n\n<script>alert(1)</script>\n\n[x](javascript:alert(1))", "https://github.com/owner/alpha/blob/main/").or_panic
 
 app = RouteHandler.new(site_routes(db))
 TOTAL = 45
@@ -112,7 +114,7 @@ status, alpha = get(app, "/packages/alpha")
 assert status == 200
 assert alpha.includes?("Alpha &amp; corrected") && alpha.includes?("Get started") && alpha.includes?("https://github.com/owner/alpha")
 assert alpha.includes?("<dd>2 iyi modules</dd>")
-assert get(app, "/packages/beta")[1].includes?("<li><code>github.com/owner/alpha</code></li>")
+assert get(app, "/packages/beta")[1].includes?("<li><a href=\"/packages/alpha\"><code>github.com/owner/alpha</code></a></li>")
 assert get(app, "/packages/http")[1].includes?("Included with iyi")
 status, missing = get(app, "/packages/gone")
 assert status == 404 && missing.includes?("Nothing here")
@@ -130,6 +132,47 @@ assert get(app, "/health") == {200, "ok"}
 assert dispatch(app, "POST", "/").response.status_code == 405
 moved = dispatch(app, "GET", "/packages/http/index.html").response
 assert moved.status_code == 301 && moved.headers["Location"]? == "/packages/http"
+
+# What search engines read. Every page has its own title, description and
+# canonical address; a search or another sort order is followed, not listed.
+SITE = "https://packs.iyi.dev"
+def head_of(page : String) : String
+  page.split("</head>", 2)[0]
+end
+home_head = head_of(home.body)
+assert home_head.includes?("<link rel=\"canonical\" href=\"#{SITE}/\">")
+assert home_head.includes?("<title>iyipacks: iyi packages and modules</title>")
+assert !home_head.includes?("noindex")
+assert home_head.includes?("\"@type\":\"WebSite\"")
+assert home_head.includes?("<meta property=\"og:image\" content=\"#{SITE}/og.png\">")
+assert head_of(get(app, "/", "q=http")[1]).includes?("<meta name=\"robots\" content=\"noindex, follow\">")
+assert head_of(get(app, "/", "sort=stars")[1]).includes?("noindex, follow")
+web_head = head_of(get(app, "/categories/web")[1])
+assert web_head.includes?("<link rel=\"canonical\" href=\"#{SITE}/categories/web\">") && !web_head.includes?("noindex")
+assert web_head.includes?("\"@type\":\"BreadcrumbList\"")
+assert head_of(get(app, "/", "category=web")[1]).includes?("<link rel=\"canonical\" href=\"#{SITE}/categories/web\">")
+alpha_head = head_of(alpha)
+assert alpha_head.includes?("<title>alpha: Alpha &amp; corrected · iyipacks</title>")
+assert alpha_head.includes?("<meta name=\"description\" content=\"Alpha &amp; corrected. Install with iyi get github.com/owner/alpha. Latest v1.0.0. Used by 1 iyi module.\">")
+assert alpha_head.includes?("<link rel=\"canonical\" href=\"#{SITE}/packages/alpha\">")
+assert alpha_head.includes?("\"@type\":\"SoftwareSourceCode\"") && alpha_head.includes?("\"name\":\"Web & networking\"")
+assert !alpha_head.includes?("<b>")
+assert head_of(missing).includes?("noindex") && !head_of(missing).includes?("canonical")
+
+# Links between packages: what a module requires and who requires it.
+assert alpha.includes?("<h2>Used by</h2>") && alpha.includes?("<a href=\"/packages/beta\">Beta</a>: second")
+
+# A README, rendered, with nothing of its own allowed to run.
+assert alpha.includes?("<h2>README</h2>") && alpha.includes?("<div class=\"readme\"><h2>Alpha</h2>")
+assert alpha.includes?("<a href=\"https://github.com/owner/alpha/blob/main/docs/guide.md\" rel=\"nofollow ugc\">guide</a>")
+assert !alpha.includes?("<script>alert") && !alpha.includes?("javascript:")
+
+sitemap = get(app, "/sitemap.xml")[1]
+assert sitemap.includes?("<loc>#{SITE}/</loc>") && sitemap.includes?("<loc>#{SITE}/categories/web</loc>")
+assert sitemap.includes?("<url><loc>#{SITE}/packages/alpha</loc><lastmod>2026-10-01T00:00:00Z</lastmod></url>")
+assert sitemap.includes?("<loc>#{SITE}/packages/http</loc>") && !sitemap.includes?("/packages/gone")
+assert occurrences(sitemap, "<url>") == 1 + 6 + TOTAL + 1
+assert get(app, "/robots.txt")[1].includes?("Sitemap: #{SITE}/sitemap.xml")
 
 # A catalog that cannot be read is a 503 page, not a crash.
 db.close
