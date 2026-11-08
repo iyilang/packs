@@ -1,0 +1,29 @@
+# iyipacks: the directory of the iyi standard library and the iyi modules on
+# GitHub, served from the catalog in SQLite. Run from the project directory:
+#
+#   iyi run packs.iyi                 # http://localhost:3000
+#   iyi run packs.iyi -- -p 8080      # PORT works too
+#
+# DATABASE_URL names the catalog (default sqlite3:./data/packs.db); pending
+# migrations in db/migrations are applied before the server listens.
+module packs
+
+import std/env::{ENV}
+import db/db/core::{Database}
+import db/db/errors::{DBError}
+import miyrate/miyrate/errors::{MiyrateError}
+import web/iyi_web/dsl::*
+import src/storage::{database_url, open_database}
+import src/site::{site_routes}
+
+url = database_url
+database = case opened = open_database(url)
+           in Database then opened
+           in MiyrateError, DBError
+             STDERR.puts "cannot open the catalog at " + url + ": " + opened.message
+             exit 1
+           end
+
+mount site_routes(database)
+
+run

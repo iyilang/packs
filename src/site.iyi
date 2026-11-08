@@ -1,0 +1,189 @@
+module src/site
+
+import std/file::{File}
+import std/list::{List}
+import std/text
+import std/time::{Time}
+import std/uri::{URI}
+import db/db/core::{Database}
+import db/db/errors::{DBError}
+import web/iyi_web/context::{Context}
+import web/iyi_web/failure::{StatusError}
+import web/iyi_web/log::{StdoutLogger}
+import web/iyi_web/router::{Router}
+import web/iyi_web/templates::{render, raw}
+import src/catalog::*
+import src/modules::{activity, ago}
+
+# The pages of the directory, rendered on each request from the catalog in
+# SQLite. The HTML is in the `.eiy` templates under src/views/, compiled into
+# the program; a template sees the locals of the method that renders it and
+# escapes every value it prints unless it is passed through `raw`.
+
+pub REPO_URL = "https://github.com/domify/iyipacks-website"
+# Where a reader reports a package that is malicious or unsafe: GitHub, and
+# this directory's own issues.
+GITHUB_ABUSE = "https://docs.github.com/en/communities/maintaining-your-safety-on-github/reporting-abuse-or-spam"
+REPORT_URL = REPO_URL + "/issues/new"
+CONTENT_SECURITY_POLICY = "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
+# The iyipacks mark: a package with the iyi mascot's face, its `i` eyes and
+# `y` beard. Inline in the header; /logo.svg is the favicon.
+LOGO = File.read("public/logo.svg").strip
+
+# The sort orders of a listing and their labels, the first the default.
+SORT_LABELS = List.new([
+  {"packages", "Packages first"},
+  {"name", "Name A–Z"},
+  {"reverse", "Name Z–A"},
+  {"stars", "Most stars"},
+  {"used", "Most used"},
+  {"updated", "Recently updated"},
+])
+
+# Its lines go out under the request log's lock, from any worker.
+LOG = StdoutLogger.new
+
+def category_name(categories : Array(Category), slug : String) : String
+  categories.each { |c| return c.name if c.slug == slug }
+  "All categories"
+end
+
+def badge(pack : Package) : String
+  return STANDARD if pack.std?
+  pack.version.empty? ? "No release" : pack.version
+end
+
+def badge_class(pack : Package) : String
+  pack.std? ? "std" : "module"
+end
+
+# The line of numbers on a package card.
+def summary(pack : Package, now : Time) : String
+  return "Ships with iyi" if pack.std?
+  parts = ["★ #{pack.stars}"]
+  used = pack.dependents || 0
+  parts << "used by #{used}" unless used == 0
+  pushed = pack.pushed || ""
+  parts << "updated #{ago(pushed, now)}" unless pushed.empty?
+  parts.join(" · ")
+end
+
+# The listing of *category* ("" for all) with the search and sort the
+# visitor chose.
+def listing_page(db : Database, category : String, query : String, sort : String) : String | DBError
+  categories = categories(db)!
+  category = "" unless categories.any? { |c| c.slug == category }
+  sort = "packages" unless SORT_LABELS.any? { |option| option[0] == sort }
+  packages = packages(db, query, category, sort)!
+  total = package_count(db)!
+  now = Time.utc
+  title = category.empty? ? "iyi packages" : category_name(categories, category)
+  render "views/listing.eiy", "views/layout.eiy"
+end
+
+def detail_page(db : Database, slug : String) : String | StatusError | DBError
+  pack = find_package(db, slug)!
+  return StatusError.new(404) unless pack
+  categories = categories(db)!
+  now = Time.utc
+  title = pack.name
+  render "views/detail.eiy", "views/layout.eiy"
+end
+
+def about_page : String
+  title = "About"
+  render "views/about.eiy", "views/layout.eiy"
+end
+
+def not_found_page : String
+  title = "Page not found"
+  render "views/not_found.eiy", "views/layout.eiy"
+end
+
+def unavailable_page : String
+  title = "Unavailable"
+  render "views/unavailable.eiy", "views/layout.eiy"
+end
+
+def listing_for(db : Database, env : Context, category : String) : String | DBError
+  listing_page(db, env.params.query["category"]? || category, env.params.query["q"]? || "", env.params.query["sort"]? || "packages")
+end
+
+# The site as one router over *db*. packs.iyi serves it; a test dispatches
+# requests to it in-process.
+pub def site_routes(db : Database) : Router
+  router = Router.new
+
+  router.before do |env|
+    env.response.headers["Content-Security-Policy"] = CONTENT_SECURITY_POLICY
+    env.response.headers["X-Content-Type-Options"] = "nosniff"
+    env.response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+  end
+
+  router.get "/" do |env|
+    listing_for(db, env, "")
+  end
+
+  # A category's own page; its filters still search every category.
+  router.get "/categories/:slug" do |env|
+    slug = env.params.url["slug"]
+    case found = categories(db)
+    in DBError then found
+    in Array(Category)
+      found.any? { |c| c.slug == slug } ? listing_for(db, env, slug) : StatusError.new(404)
+    end
+  end
+
+  router.get "/packages/:slug" do |env|
+    detail_page(db, env.params.url["slug"])
+  end
+
+  router.get "/about" do |env|
+    about_page
+  end
+
+  router.get "/packages.json" do |env|
+    case found = categories(db)
+    in DBError then found
+    in Array(Category)
+      case listed = packages(db)
+      in DBError then listed
+      in Array(Package) then env.json(Listing.new(found, listed))
+      end
+    end
+  end
+
+  router.get "/health" do |env|
+    case count = package_count(db)
+    in DBError then count
+    in Int64 then env.text("ok")
+    end
+  end
+
+  # The addresses of the static site this one replaces.
+  router.get "/index.html" do |env|
+    env.redirect("/", 301)
+  end
+  router.get "/about/index.html" do |env|
+    env.redirect("/about", 301)
+  end
+  router.get "/categories/:slug/index.html" do |env|
+    env.redirect("/categories/" + URI.encode_path_segment(env.params.url["slug"]), 301)
+  end
+  router.get "/packages/:slug/index.html" do |env|
+    env.redirect("/packages/" + URI.encode_path_segment(env.params.url["slug"]), 301)
+  end
+
+  router.error 404 do |env|
+    not_found_page
+  end
+
+  # The visitor gets a 503 page and no detail; the log gets the message.
+  router.error DBError do |env, err|
+    LOG.write("database error: " + (err.message.empty? ? err.class.to_s : err.message))
+    env.response.status_code = 503
+    unavailable_page
+  end
+
+  router
+end

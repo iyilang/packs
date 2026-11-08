@@ -1,0 +1,27 @@
+<section class="detail prose">
+<a class="text-link" href="/">← Back home</a>
+<h1>A good place to start<span class="accent">.</span></h1>
+<p class="lead">A directory of the iyi ecosystem, inspired by the Ruby Toolbox.</p>
+<h2>What is in the directory?</h2>
+<p>The iyi standard library, and every iyi module on GitHub: a repository whose iyi.mod at its root names it, so that iyi get can fetch it.</p>
+<h2>Crystal shards</h2>
+<p>Crystal shards are not listed here, but iyi supports them: build your program with iyi build --crystal, and require a shard as in Crystal.</p>
+<p><a class="text-link" href="https://shardbox.org/" target="_blank" rel="noopener noreferrer">Find Crystal shards on Shardbox<span>↗</span></a></p>
+<h2>Bring a shard over</h2>
+<p>iyi has a tool that rewrites a shard as iyi modules: <code>iyi migrate src --out iyi --annotate --check</code> writes the modules, compiles each one and names what is left for a person to finish, such as the types it could not work out.</p>
+<p>We recommend doing the rest with an LLM as well: give it the shard, the migrated modules and what --check reports, and review what it writes. Then publish the module on GitHub, and it is listed here.</p>
+<h2>Honest data</h2>
+<p>Stars, forks, issues, contributors, version tags and the last push come from GitHub, as they were when the catalog was last imported. "Used by" counts the listed modules whose iyi.mod requires a module. Downloads are not counted: iyi get fetches from git, and nobody sees that.</p>
+<h2>Add your package</h2>
+<p>There is nothing to fill in or send: publish your module on GitHub, and the next import of the catalog finds it. It is listed when</p>
+<ul>
+<li>the repository is public (an archived one is listed too: archived does not mean broken),</li>
+<li>an iyi.mod at its root names the repository, as in <code>module github.com/you/your-module</code> so that iyi get can fetch it,</li>
+<li>and it has the topic iyi, or GitHub's code search has seen its iyi.mod.</li>
+</ul>
+<p>The page shows what the repository says about itself: its description, its license, its newest version tag such as v1.0.0, and a category from its topics, such as http, json, template, cli or time. Write those well, and your package reads well here.</p>
+<h2>Use packages with care</h2>
+<p>Packages are written and published by their own authors. iyipacks lists them as it finds them on GitHub: it does not review their code and is not responsible for what they contain or do. Read a package's source and check its license before you depend on it.</p>
+<p>If a package is malicious or has a serious security problem, report it to <a href="<%= GITHUB_ABUSE %>" target="_blank" rel="noopener noreferrer">GitHub ↗</a> and <a href="<%= REPORT_URL %>" target="_blank" rel="noopener noreferrer">open an issue for iyipacks ↗</a>. We take such a package off the directory.</p>
+<p><a class="button" href="https://iyi.dev/">Explore iyi ↗</a></p>
+</section>

@@ -1,0 +1,54 @@
+<section class="detail">
+<a class="text-link" href="/#catalog">← Back to packages</a>
+<div class="eyebrow"><%= category_name(categories, pack.category) %></div>
+<h1><%= pack.name %><span class="accent">.</span></h1>
+<p class="lead"><%= pack.description %></p>
+<span class="badge <%= badge_class(pack) %>"><%= badge(pack) %></span>
+<div class="detail-grid">
+<div>
+<h2>Get started</h2>
+<pre><code><%= pack.usage %></code></pre>
+<% if pack.std? -%>
+<h2>Notes</h2>
+<p><%= pack.note %></p>
+<p>Included with iyi. No external dependency installation needed.</p>
+<% else -%>
+<p>iyi get adds it to iyi.mod and fetches its newest version tag. Import it as <code><%= pack.module %>::*</code>.</p>
+<% unless pack.note.empty? -%>
+<h2>Notes</h2>
+<p><%= pack.note %></p>
+<% end -%>
+<% requires = pack.requires.split(' ').reject(&.empty?) -%>
+<% unless requires.empty? -%>
+<h2>Requires</h2>
+<ul>
+<% requires.each do |path| -%>
+<li><code><%= path %></code></li>
+<% end -%>
+</ul>
+<% end -%>
+<% end -%>
+</div>
+<aside class="metadata">
+<h3>Package information</h3>
+<dl>
+<dt>Distribution</dt><dd><%= pack.distribution %></dd>
+<dt>License</dt><dd><%= pack.license.empty? ? "Not stated" : pack.license %></dd>
+<% unless pack.std? -%>
+<dt>Version</dt><dd><%= pack.version.empty? ? "No release yet" : "#{pack.version}, #{ago(pack.released, now)}" %></dd>
+<dt>Activity</dt><dd><%= activity(pack.pushed || "", now) %>, last push <%= ago(pack.pushed || "", now) %></dd>
+<dt>Stars</dt><dd><%= pack.stars %></dd>
+<dt>Used by</dt><dd><%= pack.dependents == 1 ? "1 iyi module" : "#{pack.dependents} iyi modules" %></dd>
+<dt>Contributors</dt><dd><%= pack.contributors %></dd>
+<dt>Forks</dt><dd><%= pack.forks %></dd>
+<dt>Open issues and PRs</dt><dd><%= pack.issues %></dd>
+<dt>Created</dt><dd><%= ago(pack.created || "", now) %></dd>
+<% end -%>
+</dl>
+<a class="button" href="<%= pack.source %>" target="_blank" rel="noopener noreferrer">View source ↗</a>
+<% unless pack.std? -%>
+<p class="care">Published by its author, not reviewed by iyipacks. Check the source before you use it. <a href="<%= REPORT_URL %>" target="_blank" rel="noopener noreferrer">Report a problem ↗</a></p>
+<% end -%>
+</aside>
+</div>
+</section>
