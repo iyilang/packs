@@ -36,6 +36,16 @@ database = case opened = open_database(url)
              exit 1
            end
 
+# Pages, JSON and the stylesheet go out zstd or gzip compressed.
+config.compress = true
+
+# The stylesheet and the script are linked with their content's version
+# (`?v=`), so a versioned address never changes and is kept for a year.
+static_headers do |env, path, info|
+  versioned = env.request.query_string.starts_with?("v=")
+  env.response.headers["Cache-Control"] = versioned ? "public, max-age=31536000, immutable" : "public, max-age=86400"
+end
+
 mount site_routes(database)
 
 run
