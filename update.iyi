@@ -1,0 +1,231 @@
+# Finds every iyi module on GitHub and writes it, with its GitHub numbers,
+# into the packages table of the catalog. Candidates come from code search
+# for an iyi.mod at a repository's root (needs GITHUB_TOKEN), repositories
+# with the topic `iyi`, the repositories of the overrides table, and the
+# modules of the last import; each is kept when its iyi.mod names it as
+# `iyi get` needs, archived or not. A fork is kept on the same terms: one
+# that only copies a module names the original. curl does the HTTPS, and the
+# token reaches it on its standard input, out of the process list. Without
+# GITHUB_TOKEN the API allows 60 requests an hour, enough for a few modules
+# but not for search. A module that cannot be read this time keeps its
+# record from the last run; a refused token or the rate limit stops the run
+# before anything is written. Run from the project directory:
+#
+#   GITHUB_TOKEN=… iyi run update.iyi
+module update
+
+import std/env::{ENV}
+import std/json::{JSON, Any}
+import std/process::{Process, ProcessResult}
+import std/text
+import std/time::{Time}
+import db/db/core::{Database, Connection}
+import db/db/errors::{DBError}
+import db/db/value::{DBValue}
+import miyrate/miyrate/errors::{MiyrateError}
+import src/catalog::{Package}
+import src/modules::{gettable?, requirements, latest_version, category_for, dependents, module_slug}
+import src/storage::{database_url, open_database}
+
+API = "https://api.github.com/"
+TOKEN = ENV["GITHUB_TOKEN"]? || ""
+# Paths that failed for a reason that may pass: no answer, or a 5xx.
+FAILED = [] of String
+
+# The columns update writes, in the order of the values `row` gives.
+INSERT = "INSERT INTO packages (slug, name, module, repo, category, description, source, homepage, usage, license, distribution, " +
+         "stars, forks, issues, watchers, contributors, created, pushed, version, released, requires, dependents, topics) " +
+         "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+
+def stop(message : String) : NoReturn
+  STDERR.puts "update: " + message
+  exit 1
+end
+
+# The status and body of a GET.
+def get(url : String) : {Int32, String}
+  config = "header = \"User-Agent: iyipacks\"\n"
+  if url.starts_with?(API)
+    config += "header = \"Accept: application/vnd.github+json\"\nheader = \"X-GitHub-Api-Version: 2022-11-28\"\n"
+  end
+  config += "header = \"Authorization: Bearer #{TOKEN}\"\n" unless TOKEN.empty?
+  result = Process.run("curl", ["-sS", "-L", "--max-time", "30", "-K", "-", "-w", "\n%{http_code}", url], input: config)
+  stop("cannot run curl") unless result.is_a?(ProcessResult)
+  return {0, result.stderr} unless result.exit_code == 0
+  cut = result.stdout.rindex('\n') || 0
+  {result.stdout[cut + 1, result.stdout.size].strip.to_i? || 0, result.stdout[0, cut]}
+end
+
+# The JSON at *path* of the API; nil when it is not there. Stops the run on
+# the rate limit or a refused token, as the data would be incomplete.
+def api(path : String) : Any?
+  status, body = get(API + path)
+  if status == 403 || status == 429 || status == 401
+    stop("GitHub refused #{path} (#{status}): #{body[0, 200]}")
+  end
+  FAILED << path if status == 0 || status >= 500
+  return nil unless status == 200
+  JSON.parse(body)
+end
+
+def text(value : Any?) : String
+  return "" unless value
+  value.as_s? || (value.as_i64? || "").to_s
+end
+
+def search_code : Array(String)
+  if TOKEN.empty?
+    STDERR.puts "update: GITHUB_TOKEN is not set; code search is skipped"
+    return [] of String
+  end
+  repos = [] of String
+  (1..10).each do |page|
+    sleep(7000) if page > 1 # code search allows 10 requests a minute
+    found = api("search/code?q=module+filename%3Aiyi.mod+path%3A%2F&per_page=100&page=#{page}")
+    break unless found
+    items = found["items"].as_a
+    items.each { |item| repos << item["repository"]["full_name"].as_s }
+    break if items.size < 100
+  end
+  repos
+end
+
+def search_topic : Array(String)
+  found = api("search/repositories?q=topic%3Aiyi+fork%3Atrue&per_page=100")
+  return [] of String unless found
+  found["items"].as_a.map { |item| item["full_name"].as_s }
+end
+
+# The record of *name*, or nil when it is no iyi module.
+def fetch(name : String) : Hash(String, String)?
+  repo = api("repos/#{name}")
+  return nil unless repo
+  return nil if repo["private"].as_bool
+  full = repo["full_name"].as_s
+  status, manifest = get("https://raw.githubusercontent.com/#{full}/#{repo["default_branch"].as_s}/iyi.mod")
+  FAILED << full if status == 0 || status >= 500
+  return nil unless status == 200 && gettable?(manifest, full)
+
+  record = {} of String => String
+  record["name"] = repo["name"].as_s
+  record["module"] = "github.com/#{full}"
+  record["repo"] = full
+  topics = (repo["topics"]? ? repo["topics"].as_a.map(&.as_s) : [] of String)
+  record["topics"] = topics.join(" ")
+  record["category"] = category_for(topics)
+  record["description"] = text(repo["description"]?)
+  record["source"] = repo["html_url"].as_s
+  record["homepage"] = text(repo["homepage"]?)
+  record["usage"] = "iyi get github.com/#{full}"
+  license = repo["license"]?
+  spdx = license && license.as_h? ? text(license["spdx_id"]?) : ""
+  record["license"] = spdx == "NOASSERTION" ? "" : spdx
+  record["stars"] = text(repo["stargazers_count"]?)
+  record["forks"] = text(repo["forks_count"]?)
+  record["issues"] = text(repo["open_issues_count"]?)
+  record["watchers"] = text(repo["subscribers_count"]?)
+  record["created"] = text(repo["created_at"]?)
+  record["pushed"] = text(repo["pushed_at"]?)
+  record["requires"] = requirements(manifest).join(" ")
+
+  tags = api("repos/#{full}/tags?per_page=100")
+  tag_list = tags ? tags.as_a : [] of Any
+  version = latest_version(tag_list.map { |tag| tag["name"].as_s })
+  record["version"] = version || ""
+  record["released"] = ""
+  if version
+    tag = tag_list.find { |t| t["name"].as_s == version }
+    commit = tag ? api("repos/#{full}/commits/#{tag["commit"]["sha"].as_s}") : nil
+    record["released"] = text(commit["commit"]["committer"]["date"]?) if commit
+  end
+  contributors = api("repos/#{full}/contributors?per_page=100&anon=1")
+  count = contributors ? contributors.as_a.size : 0
+  record["contributors"] = count >= 100 ? "100+" : count.to_s
+  record
+end
+
+# A module of the last import as a record, to keep when GitHub does not
+# answer for it this time.
+def record_of(pack : Package) : Hash(String, String)
+  {
+    "name" => pack.name, "module" => pack.module, "repo" => pack.repo || "", "category" => pack.category,
+    "description" => pack.description, "source" => pack.source, "homepage" => pack.homepage, "usage" => pack.usage,
+    "license" => pack.license, "stars" => (pack.stars || "").to_s, "forks" => (pack.forks || "").to_s,
+    "issues" => (pack.issues || "").to_s, "watchers" => (pack.watchers || "").to_s, "contributors" => pack.contributors || "",
+    "created" => pack.created || "", "pushed" => pack.pushed || "", "version" => pack.version, "released" => pack.released,
+    "requires" => pack.requires, "topics" => pack.topics,
+  }
+end
+
+# The values of INSERT for *record*: empty numbers and dates are NULL.
+def row(record : Hash(String, String)) : Array(DBValue)
+  values = [] of DBValue
+  ["slug", "name", "module", "repo", "category", "description", "source", "homepage", "usage", "license"].each { |key| values << record[key] }
+  values << "GitHub"
+  ["stars", "forks", "issues", "watchers"].each { |key| values << record[key].to_i64? }
+  ["contributors", "created", "pushed"].each { |key| values << (record[key].empty? ? nil : record[key]) }
+  ["version", "released", "requires"].each { |key| values << record[key] }
+  values << record["dependents"].to_i64
+  values << record["topics"]
+  values
+end
+
+# Replaces the imported modules with *records*, in one transaction: a
+# failure leaves the last import as it was.
+def write_modules(db : Database, records : Array(Hash(String, String))) : Nil | DBError
+  db.transaction { |tx| replace_modules(tx.connection, records) }!
+  nil
+end
+
+def replace_modules(conn : Connection, records : Array(Hash(String, String))) : Nil | DBError
+  conn.exec("DELETE FROM packages WHERE distribution = 'GitHub'")!
+  records.each do |record|
+    written = conn.exec(INSERT, args: row(record))
+    return written if written.is_a?(DBError)
+  end
+  nil
+end
+
+url = database_url
+db = case opened = open_database(url)
+     in Database then opened
+     in MiyrateError, DBError then stop("cannot open the catalog at #{url}: #{opened.message}")
+     end
+
+seeds = db.query_all("SELECT repo FROM overrides ORDER BY repo", as: String).or_panic
+std_slugs = db.query_all("SELECT slug FROM packages WHERE distribution = 'Standard library'", as: String).or_panic
+previous = {} of String => Hash(String, String)
+db.query_all("SELECT slug, name, module, repo, category, description, source, homepage, usage, note, license, distribution, " +
+             "stars, forks, issues, watchers, contributors, created, pushed, version, released, requires, dependents, topics " +
+             "FROM packages WHERE distribution = 'GitHub'", as: Package).or_panic.each do |pack|
+  record = record_of(pack)
+  previous[record["repo"].downcase] = record
+end
+
+# One spelling per repository, the first seen; GitHub's names ignore case.
+candidates = [] of String
+(search_code + search_topic + seeds + previous.values.map { |record| record["repo"] }).each do |name|
+  candidates << name unless candidates.any? { |seen| seen.downcase == name.downcase }
+end
+candidates = candidates.sorted_by(&.downcase)
+STDERR.puts "update: #{candidates.size} candidates"
+records = [] of Hash(String, String)
+candidates.each do |name|
+  failures = FAILED.size
+  record = fetch(name)
+  if FAILED.size > failures && previous[name.downcase]?
+    # GitHub did not answer this time: keep what we had.
+    record = previous[name.downcase]
+    STDERR.puts "update: #{name} kept from the last run"
+  end
+  records << record if record
+end
+
+names = records.map { |record| record["name"].downcase }
+records.each { |record| record["slug"] = module_slug(record, names, std_slugs) }
+counts = dependents(records)
+records.each { |record| record["dependents"] = (counts[record["module"].downcase]? || 0).to_s }
+
+write_modules(db, records).or_panic
+db.close
+puts "iyipacks → #{records.size} modules written to #{url}"
