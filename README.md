@@ -106,11 +106,13 @@ permissions is enough.
 an `iyi.mod` at their root, found by GitHub code search; those with the
 topic `iyi`; those named in `overrides`; and the modules of the last
 import. It keeps a repository, archived or not, whose `iyi.mod` says
-`module github.com/OWNER/REPO` for itself, as `iyi get` requires; that
-leaves out applications, whose `iyi.mod` names no repository, and forks that
-only copy a module. For each it records the repository's numbers, the
-highest `vMAJOR.MINOR.PATCH` tag and its date, the number of contributors
-(up to 100), and the modules its `iyi.mod` requires, from which "used by" is
+`module github.com/OWNER/REPO` for itself, or `github.com/OWNER/REPO/vN` for
+major version N of 2 or more, as `iyi get` requires; that leaves out
+applications, whose `iyi.mod` names no repository, and forks that only copy
+a module. For each it records the repository's numbers, the highest
+`vMAJOR.MINOR.PATCH` tag of the module's major version (0 or 1 without a
+suffix) and its date, the number of contributors (up to 100), and the
+modules its `iyi.mod` requires, from which "used by" is
 counted. The category comes from the repository's topics, or is `other`.
 A module's slug is its repository's name, or `OWNER-NAME` when another
 module or a standard module has that name.
