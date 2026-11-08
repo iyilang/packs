@@ -120,10 +120,18 @@ A module's slug is its repository's name, or `OWNER-NAME` when another
 module or a standard module has that name.
 
 The requests go through `curl`, and the token is given to curl on its
-standard input. Without `GITHUB_TOKEN` code search is skipped and GitHub
-allows 60 requests an hour, enough for a handful of modules. When GitHub
-does not answer for a module, its record from the last run is kept; a
-refused token or the rate limit stops the run without writing anything.
+standard input; only the API gets it. Without `GITHUB_TOKEN` code search is
+skipped and GitHub allows 60 requests an hour, enough for a handful of
+modules. When GitHub does not answer for a module, its record from the last
+run is kept; a token GitHub rejects (401) or the rate limit stops the run
+without writing anything.
+
+An organization may refuse a token for its repositories alone, as one that
+forbids fine-grained tokens with a lifetime over 366 days or enforces SAML
+single sign-on does (403). The import then says so once and reads that
+organization's repositories without the token, under the 60 requests an
+hour; a module it cannot read that way keeps its record from the last run.
+
 The imported modules are replaced in one transaction, so a running server
 never shows half an import.
 
@@ -153,11 +161,12 @@ factory on every worker); the fix belongs in the driver.
 - `src/catalog.iyi`: the row types and the queries.
 - `src/site.iyi`: the routes, the pages and their helpers.
 - `src/modules.iyi`: the import rules, and the dates shown.
+- `src/github.iyi`: which of GitHub's refusals stop the import.
 - `src/views/`: the `.eiy` templates.
 - `db/migrations/`: the schema and the hand-written catalog.
 - `data/packs.db`: the catalog.
 - `public/`: CSS, JavaScript and the logo, served as static files.
-- `modules_test.iyi`, `site_test.iyi`: the tests.
+- `modules_test.iyi`, `github_test.iyi`, `site_test.iyi`: the tests.
 
 ## Design
 

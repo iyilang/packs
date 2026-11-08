@@ -1,0 +1,20 @@
+module src/github
+
+import std/text
+
+# How update.iyi tells GitHub's refusals apart. GitHub answers 403 for its
+# rate limits, and also for a token it will not take for one resource: an
+# organization that forbids fine-grained tokens with a lifetime over 366
+# days, or one that enforces SAML single sign-on. The second kind is about
+# the token, not the data, which is public and readable without it.
+
+# Whether *status* and *body* say a rate limit was reached, the primary one
+# or a secondary one.
+pub def rate_limited?(status : Int32, body : String) : Bool
+  status == 429 || (status == 403 && body.downcase.includes?("rate limit"))
+end
+
+# Whether GitHub refused the token for this resource, not for its rate limit.
+pub def token_refused?(status : Int32, body : String) : Bool
+  status == 403 && !rate_limited?(status, body)
+end

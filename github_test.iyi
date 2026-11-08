@@ -1,0 +1,25 @@
+# Which of GitHub's refusals stop update.iyi and which only mean the token
+# is not taken for one owner's repositories.
+module github_test
+
+import src/github::*
+
+policy = %({"message":"The 'iyilang' organization forbids access via a fine-grained personal access tokens if the token's lifetime is greater than 366 days. Please adjust your token's lifetime at the following URL: https://github.com/settings/personal-access-tokens/1","documentation_url":"https://docs.github.com/rest/repos/repos#get-a-repository","status":"403"})
+assert token_refused?(403, policy)
+assert !rate_limited?(403, policy)
+
+sso = %({"message":"Resource protected by organization SAML enforcement. You must grant your Personal Access token access to this organization.","status":"403"})
+assert token_refused?(403, sso)
+
+primary = %({"message":"API rate limit exceeded for 203.0.113.7. (But here's the good news: Authenticated requests get a higher rate limit.)"})
+secondary = %({"message":"You have exceeded a secondary rate limit. Please wait a few minutes before you try again."})
+[primary, secondary].each do |body|
+  assert rate_limited?(403, body)
+  assert !token_refused?(403, body)
+end
+assert rate_limited?(429, "")
+assert !token_refused?(429, "")
+
+assert !token_refused?(401, %({"message":"Bad credentials"}))
+assert !rate_limited?(401, %({"message":"Bad credentials"}))
+assert !token_refused?(404, "")

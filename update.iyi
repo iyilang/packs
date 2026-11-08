@@ -25,12 +25,16 @@ import db/db/value::{DBValue}
 import miyrate/miyrate/errors::{MiyrateError}
 import src/catalog::{Package}
 import src/modules::{gettable?, module_path, major_version, requirements, latest_version, category_for, dependents, module_slug}
+import src/github::{rate_limited?, token_refused?}
 import src/storage::{database_url, open_database}
 
 API = "https://api.github.com/"
 TOKEN = ENV["GITHUB_TOKEN"]? || ""
-# Paths that failed for a reason that may pass: no answer, or a 5xx.
+# Paths that failed for a reason that may pass: no answer, a 5xx, or the
+# anonymous rate limit after GitHub refused the token.
 FAILED = [] of String
+# The owners whose repositories GitHub refused the token for, said once each.
+REFUSED = [] of String
 
 # The columns update writes, in the order of the values `row` gives.
 INSERT = "INSERT INTO packages (slug, name, module, repo, category, description, source, homepage, usage, license, distribution, " +
@@ -42,13 +46,15 @@ def stop(message : String) : NoReturn
   exit 1
 end
 
-# The status and body of a GET.
-def get(url : String) : {Int32, String}
+# The status and body of a GET, sent with *token* unless it is empty. Only
+# the API gets the token: raw.githubusercontent.com serves public files to
+# anyone.
+def get(url : String, token : String = "") : {Int32, String}
   config = "header = \"User-Agent: iyipacks\"\n"
   if url.starts_with?(API)
     config += "header = \"Accept: application/vnd.github+json\"\nheader = \"X-GitHub-Api-Version: 2022-11-28\"\n"
   end
-  config += "header = \"Authorization: Bearer #{TOKEN}\"\n" unless TOKEN.empty?
+  config += "header = \"Authorization: Bearer #{token}\"\n" unless token.empty?
   result = Process.run("curl", ["-sS", "-L", "--max-time", "30", "-K", "-", "-w", "\n%{http_code}", url], input: config)
   stop("cannot run curl") unless result.is_a?(ProcessResult)
   return {0, result.stderr} unless result.exit_code == 0
@@ -57,15 +63,44 @@ def get(url : String) : {Int32, String}
 end
 
 # The JSON at *path* of the API; nil when it is not there. Stops the run on
-# the rate limit or a refused token, as the data would be incomplete.
+# the rate limit or a token GitHub does not accept, as the data would be
+# incomplete. A token refused for one owner's repositories (an organization's
+# token policy) is left out for them from then on: their data is public.
 def api(path : String) : Any?
-  status, body = get(API + path)
-  if status == 403 || status == 429 || status == 401
-    stop("GitHub refused #{path} (#{status}): #{body[0, 200]}")
+  owner = owner_of(path)
+  refused = REFUSED.includes?(owner)
+  status, body = get(API + path, refused ? "" : TOKEN)
+  if !refused && !TOKEN.empty? && token_refused?(status, body)
+    REFUSED << owner
+    STDERR.puts "update: GitHub refused the token for #{owner}, read without it: #{message_of(body)}"
+    status, body = get(API + path)
+    refused = true
+  end
+  if refused && rate_limited?(status, body)
+    # Without the token GitHub allows 60 requests an hour: keep the last record.
+    FAILED << path
+    return nil
+  end
+  if status == 401 || rate_limited?(status, body)
+    stop("GitHub refused #{path} (#{status}): #{message_of(body)}")
   end
   FAILED << path if status == 0 || status >= 500
   return nil unless status == 200
   JSON.parse(body)
+end
+
+# The owner of a `repos/OWNER/...` path; the path itself for any other.
+def owner_of(path : String) : String
+  path.starts_with?("repos/") ? path.split('/')[1].downcase : path
+end
+
+# The `message` of GitHub's JSON error, or the start of *body*.
+def message_of(body : String) : String
+  parsed = JSON.parse?(body)
+  fields = parsed ? parsed.as_h? : nil
+  message = fields ? fields["message"]? : nil
+  said = message ? message.as_s? : nil
+  said || body[0, 200]
 end
 
 def text(value : Any?) : String
