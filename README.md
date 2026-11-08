@@ -31,11 +31,16 @@ From the project root:
 
 ```sh
 make serve       # http://localhost:3000
+make update      # fills the catalog with the iyi modules on GitHub
 ```
+
+`data/packs.db` is not in git. The first start creates it and applies the
+migrations, which bring the categories and the standard library; `make
+update` adds the modules on GitHub. The server applies pending migrations
+before it listens.
 
 `PACKS_PORT` sets the port the site listens on: `PACKS_PORT=8080 make serve`.
 `-p` on the command line comes before it, and iyi-web's `PORT` after it.
-The server applies pending migrations to `data/packs.db` before it listens.
 `DATABASE_URL` names another catalog, e.g.
 `DATABASE_URL='sqlite3:./other.db?foreign_keys=on'`. `IYI_WEB_ENV=production`
 hides error details from visitors.
@@ -134,10 +139,7 @@ hour; a module it cannot read that way keeps its record from the last run.
 
 The imported modules are replaced in one transaction, so a running server
 never shows half an import. The catalog is in SQLite's WAL mode, so the
-server's readers never keep the import from committing. The import then
-folds the write-ahead log into `data/packs.db`; if a reader holds part of it
-back, the import says so, and that part reaches the file when the server
-stops. Commit `data/packs.db` once no `data/packs.db-wal` is left.
+server's readers never keep the import from committing.
 
 Downloads are not counted: `iyi get` fetches from git, which no one can see.
 
@@ -168,7 +170,7 @@ factory on every worker); the fix belongs in the driver.
 - `src/github.iyi`: which of GitHub's refusals stop the import.
 - `src/views/`: the `.eiy` templates.
 - `db/migrations/`: the schema and the hand-written catalog.
-- `data/packs.db`: the catalog.
+- `data/packs.db`: the catalog, not in git.
 - `public/`: CSS, JavaScript and the logo, served as static files.
 - `modules_test.iyi`, `github_test.iyi`, `site_test.iyi`: the tests.
 

@@ -1,9 +1,8 @@
 /bin/
 /.cache/
 /.env
-/data/*.db-journal
-/data/*.db-wal
-/data/*.db-shm
+/data/packs.db
+/data/packs.db-*
 *.exe
 *.pdb
 *.dll

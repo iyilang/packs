@@ -275,14 +275,5 @@ in DBError then stop("cannot write the modules to #{url}: #{written.message}")
 in Nil
 end
 
-# Folds the write-ahead log into the file, so data/packs.db alone holds the
-# import. A reader inside a read transaction (a running server mid-request)
-# can keep part of it in data/packs.db-wal until the last connection closes.
-case folded = db.query_one("PRAGMA wal_checkpoint(TRUNCATE)", as: Tuple(Int64, Int64, Int64))
-in DBError then STDERR.puts "update: cannot checkpoint #{url}: #{folded.message}"
-in Tuple(Int64, Int64, Int64)
-  busy, logged, checkpointed = folded
-  STDERR.puts "update: a reader kept part of the import in the -wal file; it reaches the database when the server stops" if busy != 0 || logged != checkpointed
-end
 db.close
 puts "iyipacks → #{records.size} modules written to #{url}"
