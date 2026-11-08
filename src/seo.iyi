@@ -163,3 +163,46 @@ end
 pub def robots_txt : String
   "User-agent: *\nAllow: /\n\nSitemap: " + SITE_URL + "/sitemap.xml\n"
 end
+
+# /llms.txt (https://llmstxt.org): the directory in Markdown for language
+# models, every category and listed package with its page and how to use it.
+pub def llms_txt(categories : Array(Category), packages : Array(Package)) : String
+  String.build do |md|
+    md << "# " << SITE_NAME << "\n\n"
+    md << "> The directory of the iyi programming language's packages: the iyi standard library and every iyi module on GitHub, with stars, versions, dependencies and install commands.\n\n"
+    md << "An iyi module is a GitHub repository whose iyi.mod names it `github.com/OWNER/REPO` (or `.../vN` for major version N). "
+    md << "`iyi get <module path>` adds it to a project's iyi.mod; a standard module needs no installation and is imported as `std/<name>`. "
+    md << "Numbers come from GitHub as of the last import; downloads are not counted.\n\n"
+    md << "## Catalog\n\n"
+    md << "- [All packages as JSON](" << SITE_URL << "/packages.json): every category and package with every field\n"
+    md << "- [Sitemap](" << SITE_URL << "/sitemap.xml)\n"
+    categories.each do |c|
+      md << "- [" << one_line(c.name) << "](" << SITE_URL << "/categories/" << c.slug << "): " << one_line(c.description) << " " << c.count << " packages\n"
+    end
+    md << "\n## Modules on GitHub\n\n"
+    packages.each { |pack| llms_package(md, pack) unless pack.std? }
+    md << "\n## Standard library\n\n"
+    packages.each { |pack| llms_package(md, pack) if pack.std? }
+    md << "\n## Optional\n\n"
+    md << "- [About iyipacks](" << SITE_URL << "/about): what is listed, how a module gets listed, where the numbers come from\n"
+    md << "- [The iyi language](https://iyi.dev/)\n"
+  end
+end
+
+def llms_package(md : String::Builder, pack : Package) : Nil
+  md << "- [" << one_line(pack.name) << "](" << SITE_URL << "/packages/" << pack.slug << "): "
+  md << one_line(pack.description).rstrip('.') << ". " unless pack.description.empty?
+  if pack.std?
+    md << "Use with `"
+  elsif pack.version.empty?
+    md << "Install with `"
+  else
+    md << "Latest " << pack.version << ", install with `"
+  end
+  md << one_line(pack.usage) << "`\n"
+end
+
+# *text* on one line, with nothing that would end a Markdown link.
+def one_line(text : String) : String
+  text.gsub('\n', " ").gsub('\r', " ").gsub("[", "(").gsub("]", ")").gsub("`", "'").strip
+end

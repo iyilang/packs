@@ -174,6 +174,17 @@ assert sitemap.includes?("<loc>#{SITE}/packages/http</loc>") && !sitemap.include
 assert occurrences(sitemap, "<url>") == 1 + 6 + TOTAL + 1
 assert get(app, "/robots.txt")[1].includes?("Sitemap: #{SITE}/sitemap.xml")
 
+llms = dispatch(app, "GET", "/llms.txt").response
+assert llms.content_type == "text/markdown; charset=utf-8"
+assert llms.body.starts_with?("# iyipacks\n\n> ")
+assert llms.body.includes?("- [Web & networking](#{SITE}/categories/web): HTTP, sockets and web frameworks.")
+assert llms.body.includes?("- [alpha](#{SITE}/packages/alpha): Alpha & corrected. Latest v1.0.0, install with `iyi get github.com/owner/alpha`\n")
+assert llms.body.includes?("- [Beta](#{SITE}/packages/beta): second. Install with `iyi get github.com/owner/beta`\n")
+assert llms.body.includes?("- [HTTP](#{SITE}/packages/http): ")
+assert (llms.body.index("/packages/beta") || 99999) < (llms.body.index("## Standard library") || -1)
+assert !llms.body.includes?("/packages/gone")
+assert occurrences(llms.body, "](#{SITE}/packages/") == TOTAL
+
 # A catalog that cannot be read is a 503 page, not a crash.
 db.close
 status, down = get(app, "/")

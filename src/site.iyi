@@ -202,6 +202,17 @@ pub def site_routes(db : Database) : Router
     env.text(robots_txt)
   end
 
+  router.get "/llms.txt" do |env|
+    case found = categories(db)
+    in DBError then found
+    in Array(Category)
+      case listed = packages(db)
+      in DBError then listed
+      in Array(Package) then env.text(llms_txt(found, listed), content_type: "text/markdown; charset=utf-8")
+      end
+    end
+  end
+
   router.get "/health" do |env|
     env.response.headers["Cache-Control"] = "no-store"
     env.response.headers["X-Robots-Tag"] = "noindex"

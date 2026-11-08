@@ -57,6 +57,7 @@ hides error details from visitors.
 | `/about` | About the directory |
 | `/packages.json` | The catalog as JSON |
 | `/sitemap.xml`, `/robots.txt` | For search engines |
+| `/llms.txt` | The directory in Markdown for language models ([llmstxt.org](https://llmstxt.org)) |
 | `/health` | `ok` when the catalog can be read, 503 otherwise |
 
 The addresses of the old static site (`/packages/http/index.html`, ...)
