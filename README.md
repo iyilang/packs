@@ -41,6 +41,8 @@ before it listens.
 
 `PACKS_PORT` sets the port the site listens on: `PACKS_PORT=8080 make serve`.
 `-p` on the command line comes before it, and iyi-web's `PORT` after it.
+`PACKS_URL` is the address the site is served at, `https://packs.iyi.dev`
+unless set; canonical links, the sitemap and link previews use it.
 `DATABASE_URL` names another catalog, e.g.
 `DATABASE_URL='sqlite3:./other.db?foreign_keys=on'`. `IYI_WEB_ENV=production`
 hides error details from visitors.
@@ -51,9 +53,10 @@ hides error details from visitors.
 |---|---|
 | `/` | Every package; `?q=`, `?category=` and `?sort=` (`name`, `reverse`, `stars`, `used`, `updated`) search, filter and sort |
 | `/categories/:slug` | One category |
-| `/packages/:slug` | A package: install command, source, GitHub numbers |
+| `/packages/:slug` | A package: install command, source, GitHub numbers, what it requires and what uses it, its README |
 | `/about` | About the directory |
 | `/packages.json` | The catalog as JSON |
+| `/sitemap.xml`, `/robots.txt` | For search engines |
 | `/health` | `ok` when the catalog can be read, 503 otherwise |
 
 The addresses of the old static site (`/packages/http/index.html`, ...)
@@ -61,6 +64,27 @@ redirect to these. Every page works without JavaScript; `public/app.js`
 adds the `/` search shortcut and applies a filter as soon as it is chosen.
 Every response carries a Content Security Policy, and every value a
 template prints is HTML-escaped.
+
+## Search engines
+
+- Every page has its own title, description and canonical address, and
+  Open Graph and Twitter tags with `public/og.png` as its card.
+- A search or another sort order is `noindex, follow`: crawlers follow
+  its links, and the plain listing is the page that is listed.
+  `/?category=web` names `/categories/web` as its canonical address.
+- JSON-LD: `WebSite` on the listing, `CollectionPage` and `BreadcrumbList`
+  on a category, `SoftwareSourceCode` and `BreadcrumbList` on a package.
+- `/sitemap.xml` lists the listing, every category and package (a module
+  with its last push as `lastmod`) and the about page; `robots.txt` names it.
+- Package pages link to each other: the modules a package requires, and
+  the listed modules that require it.
+- A module's README is imported with it and rendered as a safe subset of
+  Markdown (`src/markdown.iyi`): headings, lists, code, tables, quotes and
+  links. Raw HTML and images are left out, everything else is escaped, a
+  link goes to http(s) or mailto only and carries `rel="nofollow ugc"`.
+- Responses are compressed (zstd or gzip). Pages are cached for five
+  minutes; the stylesheet and the script are linked with their content's
+  version and cached for a year.
 
 ## The catalog
 
@@ -168,11 +192,13 @@ factory on every worker); the fix belongs in the driver.
 - `src/site.iyi`: the routes, the pages and their helpers.
 - `src/modules.iyi`: the import rules, and the dates shown.
 - `src/github.iyi`: which of GitHub's refusals stop the import.
+- `src/seo.iyi`: page metadata, JSON-LD, the sitemap and robots.txt.
+- `src/markdown.iyi`: READMEs as HTML.
 - `src/views/`: the `.eiy` templates.
 - `db/migrations/`: the schema and the hand-written catalog.
 - `data/packs.db`: the catalog, not in git.
-- `public/`: CSS, JavaScript and the logo, served as static files.
-- `modules_test.iyi`, `github_test.iyi`, `site_test.iyi`: the tests.
+- `public/`: CSS, JavaScript, the logo and the link preview card, served as static files.
+- `modules_test.iyi`, `github_test.iyi`, `markdown_test.iyi`, `site_test.iyi`: the tests.
 
 ## Design
 
