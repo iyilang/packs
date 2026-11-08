@@ -14,9 +14,12 @@ import miyrate/miyrate/errors::{MiyrateError}
 # imports from GitHub. Run from the project directory: the default file and
 # the migrations are found relative to it.
 
-# Foreign keys are enforced, so a package cannot name an unknown category,
-# and a writer waits up to five seconds for another one to finish.
-pub DEFAULT_URL = "sqlite3:./data/packs.db?foreign_keys=on&busy_timeout=5000"
+# Foreign keys are enforced, so a package cannot name an unknown category.
+# The file is in WAL mode, so readers never stop `make update` from
+# committing: with a rollback journal, one reader left inside a read
+# transaction made every write fail with "database is locked". A writer
+# waits up to five seconds for another writer to finish.
+pub DEFAULT_URL = "sqlite3:./data/packs.db?foreign_keys=on&busy_timeout=5000&journal_mode=wal"
 
 pub def database_url : String
   ENV["DATABASE_URL"]? || DEFAULT_URL

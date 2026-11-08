@@ -35,6 +35,8 @@ TOKEN = ENV["GITHUB_TOKEN"]? || ""
 FAILED = [] of String
 # The owners whose repositories GitHub refused the token for, said once each.
 REFUSED = [] of String
+# The refused owners whose reads hit the limit without the token, said once each.
+LIMITED = [] of String
 
 # The columns update writes, in the order of the values `row` gives.
 INSERT = "INSERT INTO packages (slug, name, module, repo, category, description, source, homepage, usage, license, distribution, " +
@@ -78,6 +80,10 @@ def api(path : String) : Any?
   end
   if refused && rate_limited?(status, body)
     # Without the token GitHub allows 60 requests an hour: keep the last record.
+    unless LIMITED.includes?(owner)
+      LIMITED << owner
+      STDERR.puts "update: the hourly limit for requests without a token is used up; #{owner}'s modules keep their last records"
+    end
     FAILED << path
     return nil
   end
@@ -264,6 +270,19 @@ records.each { |record| record["slug"] = module_slug(record, names, std_slugs) }
 counts = dependents(records)
 records.each { |record| record["dependents"] = (counts[record["module"].downcase]? || 0).to_s }
 
-write_modules(db, records).or_panic
+case written = write_modules(db, records)
+in DBError then stop("cannot write the modules to #{url}: #{written.message}")
+in Nil
+end
+
+# Folds the write-ahead log into the file, so data/packs.db alone holds the
+# import. A reader inside a read transaction (a running server mid-request)
+# can keep part of it in data/packs.db-wal until the last connection closes.
+case folded = db.query_one("PRAGMA wal_checkpoint(TRUNCATE)", as: Tuple(Int64, Int64, Int64))
+in DBError then STDERR.puts "update: cannot checkpoint #{url}: #{folded.message}"
+in Tuple(Int64, Int64, Int64)
+  busy, logged, checkpointed = folded
+  STDERR.puts "update: a reader kept part of the import in the -wal file; it reaches the database when the server stops" if busy != 0 || logged != checkpointed
+end
 db.close
 puts "iyipacks → #{records.size} modules written to #{url}"

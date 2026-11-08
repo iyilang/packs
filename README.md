@@ -133,7 +133,11 @@ organization's repositories without the token, under the 60 requests an
 hour; a module it cannot read that way keeps its record from the last run.
 
 The imported modules are replaced in one transaction, so a running server
-never shows half an import.
+never shows half an import. The catalog is in SQLite's WAL mode, so the
+server's readers never keep the import from committing. The import then
+folds the write-ahead log into `data/packs.db`; if a reader holds part of it
+back, the import says so, and that part reaches the file when the server
+stops. Commit `data/packs.db` once no `data/packs.db-wal` is left.
 
 Downloads are not counted: `iyi get` fetches from git, which no one can see.
 
