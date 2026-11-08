@@ -1,0 +1,42 @@
+# What update.iyi decides about a repository and its iyi.mod, and how the
+# site words dates.
+module modules_test
+
+import std/time::{Time}
+import src/modules::*
+
+manifest = "\uFEFF# c\nmodule github.com/Owner/Lib\n\nrequire github.com/a/b v1.2.0 as b\nrequire github.com/c/d v0.1.0\n"
+assert module_path(manifest) == "github.com/Owner/Lib"
+assert module_path("# none\n").nil?
+assert requirements(manifest) == ["github.com/a/b", "github.com/c/d"]
+assert gettable?(manifest, "owner/lib")
+assert !gettable?(manifest, "fork/lib")
+assert !gettable?("module iyipacks\n", "x/iyipacks")
+
+assert latest_version(["v1.2.0", "v1.10.0", "v1.9.9", "latest", "v2.0.0-rc.1", "1.11.0"]) == "v2.0.0-rc.1"
+assert latest_version(["v1.0.0", "v1.0.0-beta"]) == "v1.0.0"
+assert latest_version(["main"]).nil?
+
+assert category_for(["iyi", "JSON"]) == "data"
+assert category_for(["cli", "http"]) == "web"
+assert category_for(["iyi"]) == "other"
+
+uses = dependents([{"requires" => "github.com/a/b github.com/c/d"}, {"requires" => "github.com/A/B"}, {"requires" => ""}])
+assert uses["github.com/a/b"] == 2
+assert uses["github.com/c/d"] == 1
+assert uses.size == 2
+
+# The repository's name, unless a standard module or another module has it.
+records = [{"name" => "Lib.cr", "repo" => "Owner/Lib.cr"}, {"name" => "json", "repo" => "a/json"}, {"name" => "x", "repo" => "a/x"}, {"name" => "X", "repo" => "b/X"}]
+names = records.map { |record| record["name"].downcase }
+assert records.map { |record| module_slug(record, names, ["json"]) } == ["lib-cr", "a-json", "a-x", "b-x"]
+
+now = Time.parse_rfc3339("2026-10-10T12:00:00Z")
+assert activity("2026-08-01T00:00:00Z", now) == "Active"
+assert activity("2026-01-01T00:00:00Z", now) == "Quiet"
+assert activity("2024-01-01T00:00:00Z", now) == "Inactive"
+assert activity("", now) == ""
+assert ago("2026-10-10T08:00:00Z", now) == "today"
+assert ago("2026-10-09T08:00:00Z", now) == "1 day ago"
+assert ago("2026-06-01T00:00:00Z", now) == "4 months ago"
+assert ago("2023-10-01T00:00:00Z", now) == "3 years ago"
