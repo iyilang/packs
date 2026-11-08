@@ -1,0 +1,16 @@
+# miyrate's command line for the catalog: `up`, `down`, `redo`, `status`,
+# `dbversion` and `scaffold NAME`, on DATABASE_URL or data/packs.db. Run
+# from the project directory:
+#
+#   iyi run migrate.iyi -- status
+#   iyi run migrate.iyi -- scaffold hide_some_module
+module migrate
+
+import sqlite
+import miyrate/miyrate/cli
+import miyrate/miyrate/db
+import src/storage::{database_url}
+
+Miyrate::Db.connection_url = database_url
+Miyrate::Cli.setup_log
+exit Miyrate::Cli.run(Program.args)
