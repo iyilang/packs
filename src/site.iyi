@@ -36,15 +36,17 @@ LOGO = File.read("public/logo.svg").strip
 # browser never runs a copy it cached from an older version of the site.
 ASSET_VERSION = SHA256.hexdigest(File.read("public/style.css") + File.read("public/app.js"))[0, 12]
 
-# The sort orders of a listing and their labels, the first the default.
+# The sort orders of a listing and their labels, the first the default:
+# the modules pushed to last on top, the standard library after them.
 SORT_LABELS = List.new([
+  {"updated", "Recently updated"},
   {"packages", "Packages first"},
   {"name", "Name A–Z"},
   {"reverse", "Name Z–A"},
   {"stars", "Most stars"},
   {"used", "Most used"},
-  {"updated", "Recently updated"},
 ])
+DEFAULT_SORT = "updated"
 
 # Its lines go out under the request log's lock, from any worker.
 LOG = StdoutLogger.new
@@ -80,11 +82,11 @@ end
 def listing_page(db : Database, category : String, query : String, sort : String) : String | DBError
   categories = categories(db)!
   category = "" unless categories.any? { |c| c.slug == category }
-  sort = "packages" unless SORT_LABELS.any? { |option| option[0] == sort }
+  sort = DEFAULT_SORT unless SORT_LABELS.any? { |option| option[0] == sort }
   packages = packages(db, query, category, sort)!
   total = package_count(db)!
   now = Time.utc
-  plain = query.strip.empty? && sort == "packages"
+  plain = query.strip.empty? && sort == DEFAULT_SORT
   chosen = categories.find { |c| c.slug == category }
   meta = if chosen
            Meta.new("#{chosen.name} iyi packages · iyipacks",
@@ -138,7 +140,7 @@ def unavailable_page : String
 end
 
 def listing_for(db : Database, env : Context, category : String) : String | DBError
-  listing_page(db, env.params.query["category"]? || category, env.params.query["q"]? || "", env.params.query["sort"]? || "packages")
+  listing_page(db, env.params.query["category"]? || category, env.params.query["q"]? || "", env.params.query["sort"]? || DEFAULT_SORT)
 end
 
 # The site as one router over *db*. packs.iyi serves it; a test dispatches

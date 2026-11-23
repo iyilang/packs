@@ -51,7 +51,7 @@ hides error details from visitors.
 
 | Path | |
 |---|---|
-| `/` | Every package; `?q=`, `?category=` and `?sort=` (`name`, `reverse`, `stars`, `used`, `updated`) search, filter and sort |
+| `/` | Every package, the most recently pushed first; `?q=`, `?category=` and `?sort=` (`packages`, `name`, `reverse`, `stars`, `used`, `updated`) search, filter and sort |
 | `/categories/:slug` | One category |
 | `/packages/:slug` | A package: install command, source, GitHub numbers, what it requires and what uses it, its README; a slug the module had before, as before its repository was renamed, redirects (301) to it |
 | `/about` | About the directory |
@@ -97,8 +97,10 @@ template prints is HTML-escaped.
 | `moved` | `make update`: the slugs imported modules had before, each with the repository it leads to now |
 
 The site reads the `listed` view: the packages with their overrides
-applied and the hidden ones left out. Packages from GitHub come first and
-the standard library after them, each by name.
+applied and the hidden ones left out. A listing puts the modules last
+pushed to first and the standard library after them; `/packages.json` and
+`/llms.txt` keep the modules from GitHub first and the standard library
+after them, each by name.
 
 ### Changing the hand-written part
 

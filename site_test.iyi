@@ -24,7 +24,7 @@ insert = "INSERT INTO packages (slug, name, module, repo, category, description,
 db.exec(insert, "alpha", "alpha", "github.com/owner/alpha", "owner/alpha", "other", "first <b>bold</b>", "https://github.com/owner/alpha",
   "iyi get github.com/owner/alpha", 5_i64, 2_i64, "2026-10-01T00:00:00Z", "v1.0.0", "", "zebra").or_panic
 db.exec(insert, "beta", "Beta", "github.com/owner/beta", "owner/beta", "data", "second", "https://github.com/owner/beta",
-  "iyi get github.com/owner/beta", 9_i64, 0_i64, "2025-01-01T00:00:00Z", "", "github.com/owner/alpha", "").or_panic
+  "iyi get github.com/owner/beta", 9_i64, 0_i64, "2026-11-01T00:00:00Z", "", "github.com/owner/alpha", "").or_panic
 db.exec(insert, "gone", "gone", "github.com/owner/gone", "owner/gone", "data", "hidden", "https://github.com/owner/gone",
   "iyi get github.com/owner/gone", 1_i64, 0_i64, "2025-01-01T00:00:00Z", "", "", "").or_panic
 db.exec("INSERT INTO overrides (repo, category, description) VALUES ('OWNER/Alpha', 'web', 'Alpha & corrected')").or_panic
@@ -64,9 +64,12 @@ listed = cards(home.body)
 assert listed.size == TOTAL
 assert home.body.includes?("<b>#{TOTAL}</b> packages")
 assert home.body.includes?("#{TOTAL} packages</span>")
-# Packages from GitHub first, the standard library after them, each by name.
-assert listed[0, 2] == ["alpha", "beta"]
+# The module pushed to last first, the standard library after the modules,
+# by name; "Packages first" puts them by name.
+assert listed[0, 2] == ["beta", "alpha"]
 assert (listed.index("base64") || 99) < (listed.index("yaml") || -1)
+assert home.body.includes?("<option value=\"updated\" selected>")
+assert cards(get(app, "/", "sort=packages")[1])[0, 2] == ["alpha", "beta"]
 assert !listed.includes?("gone")
 assert home.body.includes?("Text &amp; markup") && !home.body.includes?("Text & markup")
 assert !home.body.includes?("<b>bold</b>")
@@ -104,7 +107,7 @@ assert by_stars[0, 2] == ["beta", "alpha"] && by_stars.size == TOTAL
 by_use = cards(get(app, "/", "sort=used")[1])
 assert by_use[0, 2] == ["alpha", "beta"]
 by_update = cards(get(app, "/", "sort=updated")[1])
-assert by_update[0, 2] == ["alpha", "beta"]
+assert by_update == listed
 by_name = cards(get(app, "/", "sort=name")[1])
 assert by_name.size == TOTAL && cards(get(app, "/", "sort=reverse")[1]) == by_name.reversed
 assert get(app, "/", "sort=stars")[1].includes?("<option value=\"stars\" selected>")
