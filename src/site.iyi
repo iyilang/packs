@@ -168,8 +168,19 @@ pub def site_routes(db : Database) : Router
     end
   end
 
+  # A slug a module had before, as before its repository was renamed,
+  # leads to its page now.
   router.get "/packages/:slug" do |env|
-    detail_page(db, env.params.url["slug"])
+    slug = env.params.url["slug"]
+    case page = detail_page(db, slug)
+    in String, DBError then page
+    in StatusError
+      case target = moved_to(db, slug)
+      in String then env.redirect("/packages/" + URI.encode_path_segment(target), 301)
+      in Nil then page
+      in DBError then target
+      end
+    end
   end
 
   router.get "/about" do |env|

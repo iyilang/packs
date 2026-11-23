@@ -109,6 +109,34 @@ pub def module_slug(record : Hash(String, String), names : Array(String), std_sl
   slug.chars.map { |c| c.ascii_alphanumeric? || c == '_' || c == '-' ? c.to_s : "-" }.join("")
 end
 
+# *records* with one record per repository, the first: a renamed repository
+# is reached under its old name and its new one, and both answer with the
+# new one.
+pub def one_per_repo(records : Array(Hash(String, String))) : Array(Hash(String, String))
+  kept = [] of Hash(String, String)
+  records.each do |record|
+    kept << record unless kept.any? { |other| other["repo"].downcase == record["repo"].downcase }
+  end
+  kept
+end
+
+# Where the old addresses of modules lead: each slug of *before* (slug =>
+# the repository it named: the last import's modules and moved slugs) to
+# the repository of *records* it names now, following *renamed* (old
+# repository in lower case => new). A slug that a package has now, or
+# whose module is gone, leads nowhere.
+pub def moved_slugs(before : Hash(String, String), renamed : Hash(String, String), records : Array(Hash(String, String)), std_slugs : Array(String)) : Hash(String, String)
+  current = {} of String => Hash(String, String)
+  records.each { |record| current[record["repo"].downcase] = record }
+  taken = records.map { |record| record["slug"] } + std_slugs
+  moved = {} of String => String
+  before.each do |slug, repo|
+    record = current[(renamed[repo.downcase]? || repo).downcase]?
+    moved[slug] = record["repo"] if record && !taken.includes?(slug)
+  end
+  moved
+end
+
 pub def days_since(date : String, now : Time) : Int64
   (now - Time.parse_rfc3339(date)).days
 end

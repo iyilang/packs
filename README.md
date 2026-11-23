@@ -53,7 +53,7 @@ hides error details from visitors.
 |---|---|
 | `/` | Every package; `?q=`, `?category=` and `?sort=` (`name`, `reverse`, `stars`, `used`, `updated`) search, filter and sort |
 | `/categories/:slug` | One category |
-| `/packages/:slug` | A package: install command, source, GitHub numbers, what it requires and what uses it, its README |
+| `/packages/:slug` | A package: install command, source, GitHub numbers, what it requires and what uses it, its README; a slug the module had before, as before its repository was renamed, redirects (301) to it |
 | `/about` | About the directory |
 | `/packages.json` | The catalog as JSON |
 | `/sitemap.xml`, `/robots.txt` | For search engines |
@@ -94,6 +94,7 @@ template prints is HTML-escaped.
 | `categories` | migrations |
 | `packages` | migrations (the standard library) and `make update` (the modules on GitHub) |
 | `overrides` | migrations: a non-NULL `category`, `description` or `note` replaces the imported one, `hidden = 1` leaves the module out |
+| `moved` | `make update`: the slugs imported modules had before, each with the repository it leads to now |
 
 The site reads the `listed` view: the packages with their overrides
 applied and the hidden ones left out. Packages from GitHub come first and
@@ -148,6 +149,14 @@ modules its `iyi.mod` requires, from which "used by" is
 counted. The category comes from the repository's topics, or is `other`.
 A module's slug is its repository's name, or `OWNER-NAME` when another
 module or a standard module has that name.
+
+A renamed repository still answers under its old name, so the last
+import's name and the new one found by search are one module: it is
+written once, under its new name, once its `iyi.mod` names the new path.
+Until then it is left out, and the import says so. The slug it had goes in
+`moved`, and the old page redirects to the new one. An override names a
+repository, so a renamed one's no longer applies; the import says so, and
+a migration moves it to the new name.
 
 The requests go through `curl`, and the token is given to curl on its
 standard input; only the API gets it. Without `GITHUB_TOKEN` code search is

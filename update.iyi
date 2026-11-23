@@ -9,7 +9,10 @@
 # GITHUB_TOKEN the API allows 60 requests an hour, enough for a few modules
 # but not for search. A module that cannot be read this time keeps its
 # record from the last run; a refused token or the rate limit stops the run
-# before anything is written. Run from the project directory:
+# before anything is written. A renamed repository answers under its old
+# name too: it is written once, under its new name, and the slug it had
+# goes in the moved table, which the site redirects to its page. Run from
+# the project directory:
 #
 #   GITHUB_TOKEN=… iyi run update.iyi
 module update
@@ -25,7 +28,7 @@ import db/db/errors::{DBError}
 import db/db/value::{DBValue}
 import miyrate/miyrate/errors::{MiyrateError}
 import src/catalog::{Package}
-import src/modules::{gettable?, module_path, major_version, requirements, latest_version, category_for, dependents, module_slug}
+import src/modules::{gettable?, module_path, major_version, requirements, latest_version, category_for, dependents, module_slug, one_per_repo, moved_slugs}
 import src/github::{rate_limited?, token_refused?}
 import src/storage::{database_url, open_database}
 
@@ -146,7 +149,12 @@ def fetch(name : String) : Hash(String, String)?
   full = repo["full_name"].as_s
   status, manifest = get("https://raw.githubusercontent.com/#{full}/#{repo["default_branch"].as_s}/iyi.mod")
   FAILED << full if status == 0 || status >= 500
-  return nil unless status == 200 && gettable?(manifest, full)
+  unless status == 200 && gettable?(manifest, full)
+    if status == 200 && full.downcase != name.downcase && gettable?(manifest, name)
+      STDERR.puts "update: #{name} is #{full} now, but its iyi.mod still says github.com/#{name}; it is left out until it names the new path"
+    end
+    return nil
+  end
 
   # The path as iyi.mod declares it, with any /vN suffix, spelled as the
   # repository is.
@@ -208,7 +216,7 @@ end
 # answer for it this time.
 def record_of(pack : Package) : Hash(String, String)
   {
-    "name" => pack.name, "module" => pack.module, "repo" => pack.repo || "", "category" => pack.category,
+    "slug" => pack.slug, "name" => pack.name, "module" => pack.module, "repo" => pack.repo || "", "category" => pack.category,
     "description" => pack.description, "source" => pack.source, "homepage" => pack.homepage, "usage" => pack.usage,
     "license" => pack.license, "stars" => (pack.stars || "").to_s, "forks" => (pack.forks || "").to_s,
     "issues" => (pack.issues || "").to_s, "watchers" => (pack.watchers || "").to_s, "contributors" => pack.contributors || "",
@@ -232,17 +240,22 @@ def row(record : Hash(String, String)) : Array(DBValue)
   values
 end
 
-# Replaces the imported modules with *records*, in one transaction: a
-# failure leaves the last import as it was.
-def write_modules(db : Database, records : Array(Hash(String, String))) : Nil | DBError
-  db.transaction { |tx| replace_modules(tx.connection, records) }!
+# Replaces the imported modules with *records* and the moved slugs with
+# *moved*, in one transaction: a failure leaves the last import as it was.
+def write_modules(db : Database, records : Array(Hash(String, String)), moved : Hash(String, String)) : Nil | DBError
+  db.transaction { |tx| replace_modules(tx.connection, records, moved) }!
   nil
 end
 
-def replace_modules(conn : Connection, records : Array(Hash(String, String))) : Nil | DBError
+def replace_modules(conn : Connection, records : Array(Hash(String, String)), moved : Hash(String, String)) : Nil | DBError
   conn.exec("DELETE FROM packages WHERE distribution = 'GitHub'")!
   records.each do |record|
     written = conn.exec(INSERT, args: row(record))
+    return written if written.is_a?(DBError)
+  end
+  conn.exec("DELETE FROM moved")!
+  moved.each do |slug, repo|
+    written = conn.exec("INSERT INTO moved (slug, repo) VALUES (?, ?)", slug, repo)
     return written if written.is_a?(DBError)
   end
   nil
@@ -270,6 +283,12 @@ db.query_all("SELECT repo, readme, readme_base FROM packages WHERE distribution 
   end
 end
 
+# The old slugs that lead somewhere: the moved table's, then the slugs the
+# modules have now, which may be old after this run.
+before = {} of String => String
+db.query_all("SELECT slug, repo FROM moved", as: Tuple(String, String)).or_panic.each { |row| before[row[0]] = row[1] }
+previous.values.each { |record| before[record["slug"]] = record["repo"] }
+
 # One spelling per repository, the first seen; GitHub's names ignore case.
 candidates = [] of String
 (search_code + search_topic + seeds + previous.values.map { |record| record["repo"] }).each do |name|
@@ -278,6 +297,8 @@ end
 candidates = candidates.sorted_by(&.downcase)
 STDERR.puts "update: #{candidates.size} candidates"
 records = [] of Hash(String, String)
+# Old repository name, in lower case => the name GitHub answers with now.
+renamed = {} of String => String
 candidates.each do |name|
   failures = FAILED.size
   record = fetch(name)
@@ -287,14 +308,27 @@ candidates.each do |name|
     STDERR.puts "update: #{name} kept from the last run"
   end
   records << record if record
+  if record && record["repo"].downcase != name.downcase
+    renamed[name.downcase] = record["repo"]
+    STDERR.puts "update: #{name} is #{record["repo"]} now"
+  end
+end
+records = one_per_repo(records)
+
+# An override names a repository; a renamed one's no longer applies.
+seeds.each do |seed|
+  if current = renamed[seed.downcase]?
+    STDERR.puts "update: the override for #{seed} no longer applies, the repository is #{current} now: move it to the new name in a migration"
+  end
 end
 
 names = records.map { |record| record["name"].downcase }
 records.each { |record| record["slug"] = module_slug(record, names, std_slugs) }
 counts = dependents(records)
 records.each { |record| record["dependents"] = (counts[record["module"].downcase]? || 0).to_s }
+moved = moved_slugs(before, renamed, records, std_slugs)
 
-case written = write_modules(db, records)
+case written = write_modules(db, records, moved)
 in DBError then stop("cannot write the modules to #{url}: #{written.message}")
 in Nil
 end

@@ -112,6 +112,12 @@ pub def find_package(db : Database, slug : String) : Package | Nil | DBError
   db.query_one?("SELECT #{COLUMNS} FROM listed WHERE slug = ?", slug, as: Package)
 end
 
+# The slug of the listed module that *slug* belonged to before its slug
+# changed, as when its repository was renamed; nil for none.
+pub def moved_to(db : Database, slug : String) : String | Nil | DBError
+  db.query_one?("SELECT l.slug FROM moved m JOIN listed l ON l.repo = m.repo WHERE m.slug = ?", slug, as: String)
+end
+
 # The listed packages whose iyi.mod requires the module at *path*, by name.
 pub def used_by(db : Database, path : String) : Array(Package) | DBError
   return [] of Package if path.empty?

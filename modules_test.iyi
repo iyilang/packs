@@ -52,6 +52,19 @@ records = [{"name" => "Lib.cr", "repo" => "Owner/Lib.cr"}, {"name" => "json", "r
 names = records.map { |record| record["name"].downcase }
 assert records.map { |record| module_slug(record, names, ["json"]) } == ["lib-cr", "a-json", "a-x", "b-x"]
 
+# A renamed repository found under its old name and its new one is one
+# module, not two rows that the catalog's unique repo refuses.
+tui = {"name" => "itui", "repo" => "canermastan/itui"}
+assert one_per_repo([tui, {"name" => "x", "repo" => "a/x"}, {"name" => "itui", "repo" => "CanerMastan/itui"}]).map { |r| r["repo"] } == ["canermastan/itui", "a/x"]
+
+# The old slug of a renamed module leads to its new repository; a slug that
+# did not change, one a package has now, or one whose module is gone does
+# not, and an old move follows a later rename.
+now_records = [{"slug" => "itui", "repo" => "canermastan/itui"}, {"slug" => "lib", "repo" => "b/lib"}, {"slug" => "json", "repo" => "c/json2"}]
+before = {"iyi-tui" => "canermastan/iyi-tui", "lib" => "a/lib", "older" => "c/json", "json" => "x/json", "dead" => "d/dead", "itui" => "canermastan/itui"}
+renamed = {"canermastan/iyi-tui" => "canermastan/itui", "a/lib" => "b/lib", "c/json" => "c/json2"}
+assert moved_slugs(before, renamed, now_records, ["json"]) == {"iyi-tui" => "canermastan/itui", "older" => "c/json2"}
+
 now = Time.parse_rfc3339("2026-10-10T12:00:00Z")
 assert activity("2026-08-01T00:00:00Z", now) == "Active"
 assert activity("2026-01-01T00:00:00Z", now) == "Quiet"

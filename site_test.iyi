@@ -132,6 +132,12 @@ assert get(app, "/health") == {200, "ok"}
 assert dispatch(app, "POST", "/").response.status_code == 405
 moved = dispatch(app, "GET", "/packages/http/index.html").response
 assert moved.status_code == 301 && moved.headers["Location"]? == "/packages/http"
+# A module's old slug, as before its repository was renamed, leads to its
+# page; one whose module is hidden does not.
+db.exec("INSERT INTO moved (slug, repo) VALUES ('old-alpha', 'Owner/Alpha'), ('old-gone', 'owner/gone')").or_panic
+renamed = dispatch(app, "GET", "/packages/old-alpha").response
+assert renamed.status_code == 301 && renamed.headers["Location"]? == "/packages/alpha"
+assert get(app, "/packages/old-gone")[0] == 404
 
 # What search engines read. Every page has its own title, description and
 # canonical address; a search or another sort order is followed, not listed.
