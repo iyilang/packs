@@ -17,7 +17,7 @@ sorting done by the server.
 
 ## Getting started
 
-Requirements: **iyi 0.20.1 or later**, `make`, and the SQLite library:
+Requirements: **iyi 0.22.0 or later**, `make`, and the SQLite library:
 
 - **Linux:** `apt install libsqlite3-dev`.
 - **macOS:** the system's.
